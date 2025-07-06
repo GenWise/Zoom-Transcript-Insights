@@ -31,14 +31,39 @@ async def verify_webhook_signature(
         logger.warning("Zoom webhook secret not configured, skipping signature verification")
         return True
     
+    # For Zoom webhook validation challenge
+    body_bytes = await request.body()
+    body_text = body_bytes.decode('utf-8')
+    
+    # Check if this is a validation request
+    try:
+        body_json = json.loads(body_text)
+        if body_json.get("event") == "endpoint.url_validation":
+            logger.info("Received Zoom validation challenge")
+            plainToken = body_json.get("payload", {}).get("plainToken", "")
+            if plainToken:
+                # Compute hash
+                hash_object = hmac.new(
+                    config.ZOOM_WEBHOOK_SECRET.encode('utf-8'),
+                    plainToken.encode('utf-8'),
+                    hashlib.sha256
+                )
+                encrypted_token = hash_object.hexdigest()
+                
+                # Return the challenge response
+                return {
+                    "plainToken": plainToken,
+                    "encryptedToken": encrypted_token
+                }
+    except (json.JSONDecodeError, AttributeError):
+        # Not a JSON body or doesn't have the expected structure
+        pass
+    
     if not x_zm_signature or not x_zm_request_timestamp:
         raise HTTPException(status_code=401, detail="Missing Zoom signature headers")
     
-    # Get request body
-    body = await request.body()
-    
     # Compute hash
-    message = f"v0:{x_zm_request_timestamp}:{body.decode('utf-8')}"
+    message = f"v0:{x_zm_request_timestamp}:{body_text}"
     hash_object = hmac.new(
         config.ZOOM_WEBHOOK_SECRET.encode('utf-8'),
         message.encode('utf-8'),
@@ -184,4 +209,69 @@ async def webhook_health():
     """
     Health check endpoint for Zoom webhook verification.
     """
-    return {"status": "ok"} 
+    return {"status": "ok"}
+
+@router.post("/deauthorization")
+async def app_deauthorized(
+    event: ZoomWebhookEvent,
+    verified: bool = Depends(verify_webhook_signature)
+):
+    """
+    Handle webhook notification for app deauthorization events.
+    This is triggered when a user removes your app's access to their Zoom account.
+    """
+    try:
+        if event.event != "app.deauthorized":
+            return {"status": "ignored", "message": f"Event type {event.event} not handled"}
+        
+        # Extract account info from payload
+        account_id = event.payload.get("account_id", "unknown")
+        user_id = event.payload.get("user_id", "unknown")
+        
+        logger.warning(f"App deauthorized by account {account_id}, user {user_id}")
+        
+        # Here you could add code to clean up any resources associated with this account
+        
+        return {
+            "status": "success",
+            "message": "Deauthorization webhook received",
+            "account_id": account_id
+        }
+    
+    except Exception as e:
+        logger.error(f"Error processing deauthorization webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/meeting-deleted")
+async def meeting_deleted(
+    event: ZoomWebhookEvent,
+    verified: bool = Depends(verify_webhook_signature)
+):
+    """
+    Handle webhook notification for meeting deleted events.
+    This is triggered when a meeting is deleted in Zoom.
+    """
+    try:
+        if event.event != "meeting.deleted":
+            return {"status": "ignored", "message": f"Event type {event.event} not handled"}
+        
+        # Extract meeting info from payload
+        meeting_object = event.payload.get("object", {})
+        meeting_id = meeting_object.get("id", "unknown")
+        meeting_uuid = meeting_object.get("uuid", "unknown")
+        
+        logger.info(f"Meeting deleted: ID {meeting_id}, UUID {meeting_uuid}")
+        
+        # Here you could add code to clean up any resources associated with this meeting
+        # For example, mark the meeting as deleted in your database
+        
+        return {
+            "status": "success",
+            "message": "Meeting deleted webhook received",
+            "meeting_id": meeting_id,
+            "meeting_uuid": meeting_uuid
+        }
+    
+    except Exception as e:
+        logger.error(f"Error processing meeting deleted webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) 
