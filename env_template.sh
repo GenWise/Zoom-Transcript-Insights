@@ -94,4 +94,11 @@ export FOLDER_STRUCTURE='{
     }
 }'
 
+# Gmail Configuration for Notifications
+export GMAIL_USERNAME="your_gmail_address@gmail.com"
+export GMAIL_APP_PASSWORD="your_gmail_app_password"
+
+# Zoom Report URL
+export ZOOM_REPORT_URL="https://docs.google.com/spreadsheets/d/your-sheet-id/edit"
+
 echo "Environment variables loaded successfully!"

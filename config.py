@@ -5,15 +5,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Zoom API Configuration
-ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
-ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
-ZOOM_ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID")
-ZOOM_WEBHOOK_SECRET = os.getenv("ZOOM_WEBHOOK_SECRET")
-ZOOM_BASE_URL = "https://api.zoom.us/v2"
+ZOOM_CLIENT_ID = os.environ.get("ZOOM_CLIENT_ID", "")
+ZOOM_CLIENT_SECRET = os.environ.get("ZOOM_CLIENT_SECRET", "")
+ZOOM_ACCOUNT_ID = os.environ.get("ZOOM_ACCOUNT_ID", "")
+ZOOM_WEBHOOK_SECRET = os.environ.get("ZOOM_WEBHOOK_SECRET", "")
+ZOOM_BASE_URL = os.environ.get("ZOOM_BASE_URL", "https://api.zoom.us/v2")
 
 # Google Drive Configuration
-GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "sheets-and-python-340711-0c9221224a70.json")
-GOOGLE_DRIVE_ROOT_FOLDER = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER", "1VPzWqLYUt3N1HRJkgjIAqRJCEMWmid32")
+GOOGLE_CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+GOOGLE_DRIVE_ROOT_FOLDER = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER", "")
 
 # Claude API Configuration
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
@@ -99,3 +99,10 @@ Transcript:
 {transcript}
 """
 }
+
+# Gmail Configuration for Notifications
+GMAIL_USERNAME = os.environ.get("GMAIL_USERNAME", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+
+# Zoom Report Configuration
+ZOOM_REPORT_URL = os.environ.get("ZOOM_REPORT_URL", "")

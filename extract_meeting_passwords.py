@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """
-Script to extract meeting passwords from Zoom recordings and update the report.
+Script to extract host information from Zoom recordings and update the report.
 This script will:
 1. Read the Zoom recordings report
-2. For each recording, check if the password is missing
+2. For each recording, check if host information is missing
 3. If missing, fetch the recording details from Zoom API
-4. Extract the password and update the report
+4. Extract the host information and update the report
 """
 
 import os
@@ -29,7 +29,7 @@ import config
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
-log_filename = os.path.join(log_dir, f"password_extraction_{timestamp}.log")
+log_filename = os.path.join(log_dir, f"host_info_extraction_{timestamp}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -184,7 +184,7 @@ class ZoomClient:
 
 def update_zoom_report(temp_dir: str):
     """
-    Update the Zoom report with meeting passwords and host information.
+    Update the Zoom report with host information.
     
     Args:
         temp_dir: Directory for temporary files
@@ -199,11 +199,19 @@ def update_zoom_report(temp_dir: str):
         # Read the report
         df = pd.read_csv(report_path)
         
+        # Ensure password and Drive Video URL columns are removed
+        if "Meeting Password" in df.columns:
+            df = df.drop(columns=["Meeting Password"])
+            logger.info("Removed Meeting Password column from the report")
+        
+        if "Drive Video URL" in df.columns:
+            df = df.drop(columns=["Drive Video URL"])
+            logger.info("Removed Drive Video URL column from the report")
+        
         # Initialize Zoom client
         zoom_client = ZoomClient()
         
         # Track updates
-        password_updates = 0
         host_updates = 0
         
         # Process each row
@@ -214,36 +222,41 @@ def update_zoom_report(temp_dir: str):
             # Skip if no meeting ID or UUID
             if not meeting_id or pd.isna(meeting_id):
                 continue
+            
+            # Make sure Date column exists
+            if "Date" not in df.columns and "Start Time" in df.columns:
+                # Add Date column derived from Start Time
+                try:
+                    start_time = row.get("Start Time", "")
+                    if "T" in start_time:
+                        date_str = datetime.fromisoformat(start_time.replace("Z", "+00:00")).strftime("%d %b %Y")
+                    else:
+                        date_str = start_time.split(" ")[0]
+                    df.at[i, "Date"] = date_str
+                except Exception as e:
+                    logger.warning(f"Could not parse date from Start Time for row {i}: {e}")
                 
-            # Check if password is missing
-            if pd.isna(row.get("Meeting Password")) or row.get("Meeting Password") == "":
-                logger.info(f"Fetching password for meeting ID: {meeting_id}")
+            # Check if host information is missing
+            if row.get("Host Name") == "Unknown" or row.get("Host Email") == "Unknown":
+                logger.info(f"Fetching host information for meeting ID: {meeting_id}")
                 
                 # Get recording details
                 recording = zoom_client.get_recording_details(str(meeting_id), str(meeting_uuid))
                 
-                # Extract password
-                password = recording.get("password", "")
-                if password:
-                    df.at[i, "Meeting Password"] = password
-                    password_updates += 1
-                    logger.info(f"Updated password for meeting: {row['Meeting Topic']}")
-                
-                # Check if host information is missing
-                if row.get("Host Name") == "Unknown" or row.get("Host Email") == "Unknown":
-                    host_id = recording.get("host_id", "")
-                    if host_id:
-                        user_details = zoom_client.get_user(host_id)
-                        if user_details:
-                            df.at[i, "Host Name"] = f"{user_details.get('first_name', '')} {user_details.get('last_name', '')}"
-                            df.at[i, "Host Email"] = user_details.get("email", "Unknown")
-                            host_updates += 1
-                            logger.info(f"Updated host information for meeting: {row['Meeting Topic']}")
+                host_id = recording.get("host_id", "")
+                if host_id:
+                    user_details = zoom_client.get_user(host_id)
+                    if user_details:
+                        df.at[i, "Host Name"] = f"{user_details.get('first_name', '')} {user_details.get('last_name', '')}"
+                        df.at[i, "Host Email"] = user_details.get("email", "Unknown")
+                        host_updates += 1
+                        logger.info(f"Updated host information for meeting: {row['Meeting Topic']}")
         
-        if password_updates > 0 or host_updates > 0:
-            # Save the updated report
-            df.to_csv(report_path, index=False)
-            logger.info(f"Saved updated report with {password_updates} password updates and {host_updates} host information updates")
+        if host_updates > 0:
+            # Save the updated report with proper URL formatting
+            with pd.option_context('display.max_colwidth', None):
+                df.to_csv(report_path, index=False)
+            logger.info(f"Saved updated report with {host_updates} host information updates")
             
             # Upload to Google Drive
             credentials = service_account.Credentials.from_service_account_file(
@@ -287,10 +300,10 @@ def update_zoom_report(temp_dir: str):
         logger.error(f"Error updating Zoom report: {e}")
 
 def main():
-    """Main function to extract meeting passwords."""
+    """Main function to extract host information."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Extract meeting passwords from Zoom recordings")
+    parser = argparse.ArgumentParser(description="Extract host information from Zoom recordings")
     parser.add_argument("--temp-dir", type=str, default="./temp", help="Temporary directory for downloads")
     parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], 
                         default="INFO", help="Set the logging level")
@@ -303,12 +316,12 @@ def main():
     # Create temp directory
     os.makedirs(args.temp_dir, exist_ok=True)
     
-    logger.info("Starting password extraction")
+    logger.info("Starting host information extraction")
     
-    # Update the Zoom report with meeting passwords
+    # Update the Zoom report with host information
     update_zoom_report(args.temp_dir)
     
-    logger.info("Password extraction completed")
+    logger.info("Host information extraction completed")
 
 if __name__ == "__main__":
     main() 

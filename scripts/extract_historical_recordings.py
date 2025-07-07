@@ -770,8 +770,7 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
             "pedagogical_analysis_url": "",
             "aha_moments_url": "",
             "engagement_metrics_url": "",
-            "concise_summary_url": "",
-            "drive_video_url": ""
+            "concise_summary_url": ""
         }
         
         try:
@@ -816,21 +815,15 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
                         if results.get('files'):
                             file_key = file_name.split(".")[0] + "_url"
                             analysis_links[file_key] = results['files'][0].get('webViewLink', '')
-                    
-                    # Find video file in Drive
-                    video_query = f"mimeType contains 'video/' and '{session_folder_id}' in parents and trashed = false"
-                    video_results = drive_service.files().list(q=video_query, fields="files(id, name, webViewLink)").execute()
-                    
-                    if video_results.get('files'):
-                        analysis_links["drive_video_url"] = video_results['files'][0].get('webViewLink', '')
         except Exception as e:
             logger.error(f"Error finding analysis files for {topic}: {e}")
         
-        # Add to report data
+        # Add to report data - exclude Password and Drive Video URL
         report_data.append({
             "Meeting Topic": topic,
             "Host Name": user_name,
             "Host Email": user_email,
+            "Date": datetime.fromisoformat(start_time.replace("Z", "+00:00")).strftime("%d %b %Y") if "T" in start_time else start_date,
             "Start Time": start_time,
             "Duration (minutes)": duration,
             "Has Transcript": has_transcript,
@@ -838,9 +831,7 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
             "Meeting UUID": recording.get("uuid", ""),
             "Meeting ID": recording.get("id", ""),
             "Size (MB)": total_size_mb,
-            "Meeting Password": recording.get("password", ""),
             "Zoom Video URL": zoom_video_url,
-            "Drive Video URL": analysis_links["drive_video_url"],
             "Executive Summary URL": analysis_links["executive_summary_url"],
             "Pedagogical Analysis URL": analysis_links["pedagogical_analysis_url"],
             "Aha Moments URL": analysis_links["aha_moments_url"],
@@ -854,8 +845,11 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
         return
         
     df = pd.DataFrame(report_data)
-    report_path = os.path.join(temp_dir, "zoom_recordings_report.csv")
-    df.to_csv(report_path, index=False)
+    
+    # Ensure URLs don't spill over by setting display.max_colwidth
+    with pd.option_context('display.max_colwidth', None):
+        report_path = os.path.join(temp_dir, "zoom_recordings_report.csv")
+        df.to_csv(report_path, index=False)
     logger.info(f"Saved report to {report_path}")
     
     # Upload to Google Drive
