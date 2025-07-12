@@ -284,6 +284,23 @@ python verify_report_updates.py
 
 When configured correctly, the application will automatically process new recordings when they become available in your Zoom account.
 
+### Automated Daily Processing
+
+The system includes an automated daily processing script that:
+
+1. Extracts new recordings from Zoom
+2. Processes recordings in Google Drive to generate insights
+3. Updates the Zoom report with insight URLs
+4. Sends email notifications with processing results
+
+To set up automated daily processing:
+
+```bash
+./scripts/setup_daily_processing.sh
+```
+
+For more details, see [docs/automated_processing.md](docs/automated_processing.md).
+
 ## Testing
 
 The application includes a comprehensive test suite. For details, see [TESTING.md](TESTING.md).
