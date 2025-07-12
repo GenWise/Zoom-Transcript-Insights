@@ -61,47 +61,96 @@ async def create_folder_structure(
             session_folder_display_name = f"{session_name}_{session_date}"
             
         # Check if course folder exists
-        query = f"name = '{course_folder_name}' and mimeType = 'application/vnd.google-apps.folder' and '{config.GOOGLE_DRIVE_ROOT_FOLDER}' in parents and trashed = false"
-        results = service.files().list(q=query).execute()
+        if config.USE_SHARED_DRIVE:
+            # When using a shared drive
+            query = f"name = '{course_folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            results = service.files().list(
+                q=query,
+                corpora="drive",
+                driveId=config.GOOGLE_SHARED_DRIVE_ID,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+        else:
+            # When using My Drive
+            query = f"name = '{course_folder_name}' and mimeType = 'application/vnd.google-apps.folder' and '{config.GOOGLE_DRIVE_ROOT_FOLDER}' in parents and trashed = false"
+            results = service.files().list(q=query).execute()
         
         if results.get('files'):
             course_folder_id = results['files'][0]['id']
             logger.info(f"Found existing course folder: {course_folder_name}")
         else:
             # Create course folder
-            file_metadata = {
-                'name': course_folder_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER]
-            }
-            
-            course_folder = service.files().create(
-                body=file_metadata,
-                fields='id'
-            ).execute()
+            if config.USE_SHARED_DRIVE:
+                file_metadata = {
+                    'name': course_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'driveId': config.GOOGLE_SHARED_DRIVE_ID,
+                    'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER]
+                }
+                
+                course_folder = service.files().create(
+                    body=file_metadata,
+                    fields='id',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                file_metadata = {
+                    'name': course_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER]
+                }
+                
+                course_folder = service.files().create(
+                    body=file_metadata,
+                    fields='id'
+                ).execute()
             
             course_folder_id = course_folder.get('id')
             logger.info(f"Created new course folder: {course_folder_name}")
         
         # Check if session folder exists
-        query = f"name = '{session_folder_display_name}' and mimeType = 'application/vnd.google-apps.folder' and '{course_folder_id}' in parents and trashed = false"
-        results = service.files().list(q=query).execute()
+        if config.USE_SHARED_DRIVE:
+            query = f"name = '{session_folder_display_name}' and mimeType = 'application/vnd.google-apps.folder' and '{course_folder_id}' in parents and trashed = false"
+            results = service.files().list(
+                q=query,
+                corpora="drive",
+                driveId=config.GOOGLE_SHARED_DRIVE_ID,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+        else:
+            query = f"name = '{session_folder_display_name}' and mimeType = 'application/vnd.google-apps.folder' and '{course_folder_id}' in parents and trashed = false"
+            results = service.files().list(q=query).execute()
         
         if results.get('files'):
             session_folder_id = results['files'][0]['id']
             logger.info(f"Found existing session folder: {session_folder_display_name}")
         else:
             # Create session folder
-            file_metadata = {
-                'name': session_folder_display_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [course_folder_id]
-            }
-            
-            session_folder = service.files().create(
-                body=file_metadata,
-                fields='id'
-            ).execute()
+            if config.USE_SHARED_DRIVE:
+                file_metadata = {
+                    'name': session_folder_display_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [course_folder_id]
+                }
+                
+                session_folder = service.files().create(
+                    body=file_metadata,
+                    fields='id',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                file_metadata = {
+                    'name': session_folder_display_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [course_folder_id]
+                }
+                
+                session_folder = service.files().create(
+                    body=file_metadata,
+                    fields='id'
+                ).execute()
             
             session_folder_id = session_folder.get('id')
             logger.info(f"Created new session folder: {session_folder_display_name}")
@@ -147,11 +196,19 @@ async def upload_file(
             resumable=True
         )
         
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
+        if config.USE_SHARED_DRIVE:
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
+        else:
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
         
         return file.get('id')
     

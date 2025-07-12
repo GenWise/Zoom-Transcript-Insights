@@ -1,14 +1,18 @@
 import logging
 import json
-from typing import Dict, Any, List, Optional
+import os
+from typing import Dict, Any, List, Optional, Tuple
 import asyncio
 
 import anthropic
 from anthropic import Anthropic
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 import config
 from app.models.schemas import AnalysisRequest, AnalysisResult, TranscriptSegment
 from app.services.vtt_parser import parse_vtt, merge_consecutive_segments
+from app.services.api_queue import api_queue
 
 logger = logging.getLogger(__name__)
 
@@ -30,40 +34,40 @@ async def generate_analysis(request: AnalysisRequest) -> AnalysisResult:
         # Format transcript for Claude
         transcript_text = format_transcript_for_claude(merged_segments)
         
+        # Load chat log if available
+        chat_text = ""
+        if request.chat_log_path:
+            try:
+                with open(request.chat_log_path, "r", encoding="utf-8") as f:
+                    chat_text = f.read()
+                logger.info(f"Loaded chat log: {len(chat_text)} characters")
+            except Exception as e:
+                logger.warning(f"Error loading chat log: {e}")
+        
         # Initialize result
         result = AnalysisResult()
         
-        # Generate each requested analysis type
-        tasks = []
-        
-        if "executive_summary" in request.analysis_types:
-            tasks.append(generate_executive_summary(transcript_text))
-        
-        if "pedagogical_analysis" in request.analysis_types:
-            tasks.append(generate_pedagogical_analysis(transcript_text))
-        
-        if "aha_moments" in request.analysis_types:
-            tasks.append(generate_aha_moments(transcript_text))
-        
-        if "engagement_analysis" in request.analysis_types:
-            school_mapping = {}
-            if request.participant_school_mapping:
-                school_mapping = request.participant_school_mapping
-            tasks.append(generate_engagement_analysis(transcript_text, segments, school_mapping))
-        
-        # Wait for all tasks to complete
-        analysis_results = await asyncio.gather(*tasks)
-        
-        # Assign results to the appropriate fields
-        for i, analysis_type in enumerate([t for t in request.analysis_types if t in ["executive_summary", "pedagogical_analysis", "aha_moments", "engagement_analysis"]]):
+        # Process analysis types sequentially with delays between them
+        for analysis_type in request.analysis_types:
+            logger.info(f"Generating {analysis_type}...")
+            
             if analysis_type == "executive_summary":
-                result.executive_summary = analysis_results[i]
+                result.executive_summary = await generate_executive_summary(transcript_text, chat_text)
+                
             elif analysis_type == "pedagogical_analysis":
-                result.pedagogical_analysis = analysis_results[i]
+                result.pedagogical_analysis = await generate_pedagogical_analysis(transcript_text, chat_text)
+                
             elif analysis_type == "aha_moments":
-                result.aha_moments = analysis_results[i]
+                result.aha_moments = await generate_aha_moments(transcript_text, chat_text)
+                
             elif analysis_type == "engagement_analysis":
-                result.engagement_metrics = analysis_results[i]
+                result.engagement_metrics = await generate_engagement_metrics(transcript_text, chat_text, request.participant_school_mapping)
+            
+            # Add delay between analysis types to avoid rate limits
+            if analysis_type != request.analysis_types[-1]:
+                delay = 5  # 5 seconds between analysis types
+                logger.info(f"Waiting {delay}s before next analysis type")
+                await asyncio.sleep(delay)
         
         return result
     
@@ -73,7 +77,7 @@ async def generate_analysis(request: AnalysisRequest) -> AnalysisResult:
 
 def format_transcript_for_claude(segments: List[TranscriptSegment]) -> str:
     """
-    Format transcript segments for Claude prompt.
+    Format transcript segments for Claude.
     
     Args:
         segments: List of transcript segments
@@ -81,161 +85,284 @@ def format_transcript_for_claude(segments: List[TranscriptSegment]) -> str:
     Returns:
         Formatted transcript text
     """
-    formatted_lines = []
-    
+    formatted_text = ""
     for segment in segments:
-        speaker = segment.speaker or "Unknown Speaker"
-        time_range = f"[{segment.start_time} - {segment.end_time}]"
-        formatted_lines.append(f"{time_range} {speaker}: {segment.text}")
-    
-    return "\n\n".join(formatted_lines)
+        formatted_text += f"{segment.speaker}: {segment.text}\n\n"
+    return formatted_text
 
-async def call_claude(prompt: str) -> str:
+async def generate_executive_summary(transcript_text: str, chat_text: str = "") -> str:
     """
-    Call Claude API with a prompt.
-    
-    Args:
-        prompt: Prompt to send to Claude
-        
-    Returns:
-        Claude's response
-    """
-    try:
-        client = Anthropic(api_key=config.CLAUDE_API_KEY)
-        
-        response = client.messages.create(
-            model=config.CLAUDE_MODEL,
-            max_tokens=4000,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        return response.content[0].text
-    
-    except Exception as e:
-        logger.error(f"Error calling Claude API: {e}")
-        raise
-
-async def generate_executive_summary(transcript_text: str) -> str:
-    """
-    Generate executive summary using Claude.
+    Generate executive summary for a transcript.
     
     Args:
         transcript_text: Formatted transcript text
+        chat_text: Chat log text (optional)
         
     Returns:
         Executive summary
     """
     prompt = config.CLAUDE_PROMPTS["executive_summary"].format(transcript=transcript_text)
-    return await call_claude(prompt)
+    
+    if chat_text:
+        prompt += f"\n\nAdditional context from chat log:\n{chat_text}"
+    
+    try:
+        response = await call_claude(prompt)
+        return response
+    except Exception as e:
+        logger.error(f"Error generating executive summary: {e}")
+        raise
 
-async def generate_pedagogical_analysis(transcript_text: str) -> str:
+async def generate_pedagogical_analysis(transcript_text: str, chat_text: str = "") -> str:
     """
-    Generate pedagogical analysis using Claude.
+    Generate pedagogical analysis for a transcript.
     
     Args:
         transcript_text: Formatted transcript text
+        chat_text: Chat log text (optional)
         
     Returns:
         Pedagogical analysis
     """
     prompt = config.CLAUDE_PROMPTS["pedagogical_analysis"].format(transcript=transcript_text)
-    return await call_claude(prompt)
+    
+    if chat_text:
+        prompt += f"\n\nAdditional context from chat log:\n{chat_text}"
+    
+    try:
+        response = await call_claude(prompt)
+        return response
+    except Exception as e:
+        logger.error(f"Error generating pedagogical analysis: {e}")
+        raise
 
-async def generate_aha_moments(transcript_text: str) -> str:
+async def generate_aha_moments(transcript_text: str, chat_text: str = "") -> str:
     """
-    Generate AHA moments analysis using Claude.
+    Generate AHA moments for a transcript.
     
     Args:
         transcript_text: Formatted transcript text
+        chat_text: Chat log text (optional)
         
     Returns:
-        AHA moments analysis
+        AHA moments
     """
     prompt = config.CLAUDE_PROMPTS["aha_moments"].format(transcript=transcript_text)
-    return await call_claude(prompt)
+    
+    if chat_text:
+        prompt += f"\n\nAdditional context from chat log:\n{chat_text}"
+    
+    try:
+        response = await call_claude(prompt)
+        return response
+    except Exception as e:
+        logger.error(f"Error generating AHA moments: {e}")
+        raise
 
-async def generate_engagement_analysis(
-    transcript_text: str,
-    segments: List[TranscriptSegment],
-    school_mapping: Dict[str, str]
-) -> Dict[str, Any]:
+async def generate_engagement_metrics(transcript_text: str, chat_text: str = "", school_mapping: Dict[str, str] = None) -> Dict[str, Any]:
     """
-    Generate engagement analysis using Claude and calculate statistics.
+    Generate engagement metrics for a transcript.
     
     Args:
         transcript_text: Formatted transcript text
-        segments: List of transcript segments
-        school_mapping: Mapping of participant names to schools
+        chat_text: Chat log text (optional)
+        school_mapping: Mapping of participants to schools
         
     Returns:
-        Engagement metrics and analysis
+        Engagement metrics
     """
-    # Calculate basic statistics
-    speaker_stats = calculate_speaker_stats(segments)
-    
-    # Format school mapping for Claude
-    school_mapping_text = json.dumps(school_mapping, indent=2)
-    
-    # Generate qualitative analysis with Claude
+    school_mapping_str = json.dumps(school_mapping or {}, indent=2)
     prompt = config.CLAUDE_PROMPTS["engagement_analysis"].format(
         transcript=transcript_text,
-        school_mapping=school_mapping_text
+        school_mapping=school_mapping_str
     )
     
-    qualitative_analysis = await call_claude(prompt)
+    if chat_text:
+        prompt += f"\n\nAdditional context from chat log:\n{chat_text}"
     
-    # Combine statistics and qualitative analysis
-    result = {
-        "speaker_statistics": speaker_stats,
-        "qualitative_analysis": qualitative_analysis,
-        "school_mapping": school_mapping
-    }
+    try:
+        response = await call_claude(prompt)
+        
+        # Try to parse the response as JSON
+        try:
+            # Look for JSON block in the response
+            import re
+            json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                metrics = json.loads(json_str)
+            else:
+                # Fallback: try to parse the entire response
+                metrics = json.loads(response)
+            
+            return metrics
+        except json.JSONDecodeError:
+            # If parsing fails, return the raw response
+            logger.warning("Failed to parse engagement metrics as JSON")
+            return {"raw_response": response}
     
-    return result
+    except Exception as e:
+        logger.error(f"Error generating engagement metrics: {e}")
+        raise
 
-def calculate_speaker_stats(segments: List[TranscriptSegment]) -> Dict[str, Dict[str, Any]]:
+async def call_claude(prompt: str, max_tokens: int = 4000) -> str:
     """
-    Calculate statistics for each speaker.
+    Call Claude API with a prompt using the queue system.
     
     Args:
-        segments: List of transcript segments
+        prompt: Prompt to send to Claude
+        max_tokens: Maximum tokens in the response
         
     Returns:
-        Dictionary with speaker statistics
+        Claude's response
     """
-    stats = {}
+    try:
+        # Use the API queue to manage rate limits
+        logger.info(f"Queuing Claude API request with prompt length: {len(prompt)} chars")
+        response = await api_queue.add_request(prompt, max_tokens)
+        logger.info(f"Received Claude API response: {len(response)} chars")
+        return response
     
-    for segment in segments:
-        if not segment.speaker:
-            continue
-        
-        speaker = segment.speaker
-        if speaker not in stats:
-            stats[speaker] = {
-                "total_segments": 0,
-                "total_words": 0,
-                "total_duration_seconds": 0,
-                "first_timestamp": segment.start_time,
-                "last_timestamp": segment.end_time
-            }
-        
-        # Update stats
-        stats[speaker]["total_segments"] += 1
-        stats[speaker]["total_words"] += len(segment.text.split())
-        
-        # Calculate duration
-        start_time_parts = segment.start_time.split(':')
-        end_time_parts = segment.end_time.split(':')
-        
-        start_seconds = int(start_time_parts[0]) * 3600 + int(start_time_parts[1]) * 60 + float(start_time_parts[2])
-        end_seconds = int(end_time_parts[0]) * 3600 + int(end_time_parts[1]) * 60 + float(end_time_parts[2])
-        
-        duration = end_seconds - start_seconds
-        stats[speaker]["total_duration_seconds"] += duration
-        
-        # Update last timestamp
-        stats[speaker]["last_timestamp"] = segment.end_time
+    except Exception as e:
+        logger.error(f"Error calling Claude API: {e}")
+        raise
+
+async def update_report_with_insight_urls(session_name: str, insight_urls: Dict[str, str]) -> bool:
+    """
+    Update the Zoom Report with insight URLs for a session.
     
-    return stats 
+    Args:
+        session_name: Name of the session
+        insight_urls: Dictionary with insight URLs
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Get the report ID from environment
+        report_id = os.environ.get("ZOOM_REPORT_ID", "")
+        if not report_id:
+            logger.info("No report ID found in environment variables, skipping report update")
+            return False
+            
+        logger.info(f"Updating report with insight URLs for: {session_name}")
+        
+        # Set up Google Sheets API client
+        credentials = service_account.Credentials.from_service_account_file(
+            config.GOOGLE_CREDENTIALS_FILE, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        sheets_service = build("sheets", "v4", credentials=credentials)
+        
+        # First get the sheet metadata to find the actual sheet name
+        sheet_metadata = sheets_service.spreadsheets().get(spreadsheetId=report_id).execute()
+        sheets = sheet_metadata.get('sheets', '')
+        
+        if not sheets:
+            logger.info("No sheets found in the spreadsheet")
+            return False
+            
+        # Use the first sheet's title
+        sheet_title = sheets[0]['properties']['title']
+        logger.info(f"Using sheet: {sheet_title}")
+        
+        # Get the spreadsheet values
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=report_id,
+            range=f"{sheet_title}!A1:Q1000"
+        ).execute()
+            
+        values = result.get('values', [])
+        if not values:
+            logger.info("No data found in report")
+            return False
+            
+        # Find the session in the report
+        session_row_index = None
+        for i, row in enumerate(values):
+            if len(row) > 0 and session_name in row[0]:
+                session_row_index = i
+                break
+                
+        if session_row_index is None:
+            logger.info(f"Session {session_name} not found in report")
+            return False
+            
+        # Get the headers
+        headers = values[0]
+        
+        # Map column names to indices
+        url_columns = {
+            "Executive Summary URL": insight_urls.get("executive_summary_url", ""),
+            "Pedagogical Analysis URL": insight_urls.get("pedagogical_analysis_url", ""),
+            "Aha Moments URL": insight_urls.get("aha_moments_url", ""),
+            "Engagement Metrics URL": insight_urls.get("engagement_metrics_url", ""),
+            "Concise Summary URL": insight_urls.get("concise_summary_url", "")
+        }
+        
+        # Prepare updates
+        updates = []
+        for header, url in url_columns.items():
+            if not url:
+                continue
+                
+            try:
+                col_index = headers.index(header)
+                # Convert to A1 notation
+                col_letter = chr(ord('A') + col_index)
+                cell_range = f"{sheet_title}!{col_letter}{session_row_index + 1}"
+                
+                updates.append({
+                    "range": cell_range,
+                    "values": [[url]]
+                })
+            except ValueError:
+                logger.warning(f"Column '{header}' not found in report")
+        
+        if not updates:
+            logger.info("No updates to make")
+            return False
+            
+        # Apply updates
+        body = {
+            "valueInputOption": "USER_ENTERED",
+            "data": updates
+        }
+        
+        result = sheets_service.spreadsheets().values().batchUpdate(
+            spreadsheetId=report_id,
+            body=body
+        ).execute()
+        
+        logger.info(f"Updated {len(updates)} cells in report")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error updating report with insight URLs: {e}")
+        return False
+
+async def generate_concise_summary_from_text(executive_summary: str) -> str:
+    """
+    Generate a concise summary from an executive summary.
+    
+    Args:
+        executive_summary: Executive summary text
+        
+    Returns:
+        Concise summary
+    """
+    prompt = f"""
+You're creating a concise 3-5 line summary for school leaders based on this executive summary.
+Focus on the most important insights and outcomes.
+Make it clear, direct, and actionable.
+
+Executive Summary:
+{executive_summary}
+"""
+    
+    try:
+        response = await call_claude(prompt, max_tokens=1000)
+        return response
+    except Exception as e:
+        logger.error(f"Error generating concise summary: {e}")
+        raise 

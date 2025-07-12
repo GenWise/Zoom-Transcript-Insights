@@ -79,4 +79,14 @@ def sample_school_mapping() -> Dict[str, str]:
         "Student 1": "University C",
         "Student 2": "University D",
         "Instructor": "University X"
-    } 
+    }
+
+
+@pytest.fixture
+def webhook_secret():
+    """Set a webhook secret for testing"""
+    import config
+    original_secret = config.ZOOM_WEBHOOK_SECRET
+    config.ZOOM_WEBHOOK_SECRET = "test_webhook_secret"
+    yield config.ZOOM_WEBHOOK_SECRET
+    config.ZOOM_WEBHOOK_SECRET = original_secret 

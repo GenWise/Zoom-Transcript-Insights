@@ -294,6 +294,15 @@ def update_zoom_report(results: List[Dict], temp_dir: str):
         # Read the report
         df = pd.read_csv(report_path)
         
+        # Ensure password and Drive Video URL columns are removed
+        if "Meeting Password" in df.columns:
+            df = df.drop(columns=["Meeting Password"])
+            logger.info("Removed Meeting Password column from the report")
+            
+        if "Drive Video URL" in df.columns:
+            df = df.drop(columns=["Drive Video URL"])
+            logger.info("Removed Drive Video URL column from the report")
+        
         # Get Drive service
         credentials = service_account.Credentials.from_service_account_file(
             config.GOOGLE_CREDENTIALS_FILE, 
@@ -319,8 +328,9 @@ def update_zoom_report(results: List[Dict], temp_dir: str):
                     logger.info(f"Updated concise summary URL for meeting: {row['Meeting Topic']}")
         
         if updated_count > 0:
-            # Save the updated report
-            df.to_csv(report_path, index=False)
+            # Save the updated report with proper URL formatting
+            with pd.option_context('display.max_colwidth', None):
+                df.to_csv(report_path, index=False)
             logger.info(f"Saved updated report with {updated_count} concise summary URLs")
             
             # Upload to Google Drive

@@ -60,15 +60,16 @@ async def get_recording_info(meeting_uuid: str) -> ZoomRecording:
         logger.error(f"Error getting recording info: {e}")
         raise
 
-async def download_transcript(download_url: str) -> str:
+async def download_transcript(download_url: str, file_path: str = None) -> bool:
     """
     Download a transcript file from Zoom.
     
     Args:
         download_url: URL to download the transcript
+        file_path: Path to save the transcript file (optional)
         
     Returns:
-        Path to the downloaded transcript file
+        True if download was successful, False otherwise
     """
     try:
         token = generate_jwt_token()
@@ -80,14 +81,21 @@ async def download_transcript(download_url: str) -> str:
         response = requests.get(download_url, headers=headers)
         response.raise_for_status()
         
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".vtt") as temp_file:
-            temp_file.write(response.content)
-            return temp_file.name
+        # If file_path is provided, save to that path
+        if file_path:
+            with open(file_path, 'wb') as f:
+                f.write(response.content)
+        # Otherwise save to temp file
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".vtt") as temp_file:
+                temp_file.write(response.content)
+                return temp_file.name
+        
+        return True
     
     except Exception as e:
         logger.error(f"Error downloading transcript: {e}")
-        raise
+        return False
 
 async def list_recordings(from_date: str, to_date: Optional[str] = None) -> Dict[str, Any]:
     """

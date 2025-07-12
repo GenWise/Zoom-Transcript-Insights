@@ -1,0 +1,18 @@
+# Zoom API Credentials
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_ACCOUNT_ID=your_zoom_account_id
+ZOOM_WEBHOOK_SECRET=your_zoom_webhook_secret
+
+# Google Drive API Credentials
+GOOGLE_CREDENTIALS_FILE=your_google_credentials_file.json
+GOOGLE_DRIVE_ROOT_FOLDER=your_google_drive_root_folder_id
+
+# Claude API Credentials
+CLAUDE_API_KEY=your_claude_api_key
+CLAUDE_MODEL=claude-3-7-sonnet-20250219
+
+# App Settings
+APP_HOST=0.0.0.0
+APP_PORT=8000
+DEBUG=False 

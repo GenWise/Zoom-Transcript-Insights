@@ -24,15 +24,16 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import time
+import asyncio
+import anthropic
 
 # Add the parent directory to the path so we can import from the app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.models.schemas import AnalysisRequest, AnalysisResult
 from app.services.analysis import generate_analysis
-from app.services.drive_manager import upload_file
 import config
 
 # Set up logging with timestamped log file
@@ -69,8 +70,16 @@ class DriveManager:
         )
         
         self.service = build("drive", "v3", credentials=credentials)
+        # Also create a sheets service for accessing spreadsheets
+        self.sheets_service = build("sheets", "v4", credentials=credentials)
         self.root_folder_id = config.GOOGLE_DRIVE_ROOT_FOLDER
-        logger.info(f"Drive Manager initialized with root folder ID: {self.root_folder_id}")
+        self.use_shared_drive = config.USE_SHARED_DRIVE
+        self.shared_drive_id = config.GOOGLE_SHARED_DRIVE_ID if config.USE_SHARED_DRIVE else None
+        
+        if self.use_shared_drive:
+            logger.info(f"Drive Manager initialized with shared drive ID: {self.shared_drive_id}")
+        else:
+            logger.info(f"Drive Manager initialized with root folder ID: {self.root_folder_id}")
         
     def list_folders(self, parent_id: str) -> List[Dict]:
         """
@@ -89,12 +98,24 @@ class DriveManager:
         page_token = None
         
         while True:
-            response = self.service.files().list(
-                q=query,
-                spaces="drive",
-                fields="nextPageToken, files(id, name)",
-                pageToken=page_token
-            ).execute()
+            if self.use_shared_drive:
+                response = self.service.files().list(
+                    q=query,
+                    spaces="drive",
+                    fields="nextPageToken, files(id, name)",
+                    pageToken=page_token,
+                    corpora="drive",
+                    driveId=self.shared_drive_id,
+                    includeItemsFromAllDrives=True,
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                response = self.service.files().list(
+                    q=query,
+                    spaces="drive",
+                    fields="nextPageToken, files(id, name)",
+                    pageToken=page_token
+                ).execute()
             
             page_results = response.get("files", [])
             results.extend(page_results)
@@ -125,12 +146,24 @@ class DriveManager:
         page_token = None
         
         while True:
-            response = self.service.files().list(
-                q=query,
-                spaces="drive",
-                fields="nextPageToken, files(id, name, mimeType)",
-                pageToken=page_token
-            ).execute()
+            if self.use_shared_drive:
+                response = self.service.files().list(
+                    q=query,
+                    spaces="drive",
+                    fields="nextPageToken, files(id, name, mimeType, webViewLink)",
+                    pageToken=page_token,
+                    corpora="drive",
+                    driveId=self.shared_drive_id,
+                    includeItemsFromAllDrives=True,
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                response = self.service.files().list(
+                    q=query,
+                    spaces="drive",
+                    fields="nextPageToken, files(id, name, mimeType, webViewLink)",
+                    pageToken=page_token
+                ).execute()
             
             page_results = response.get("files", [])
             results.extend(page_results)
@@ -157,7 +190,14 @@ class DriveManager:
         """
         try:
             logger.debug(f"Downloading file with ID: {file_id} to {output_path}")
-            request = self.service.files().get_media(fileId=file_id)
+            
+            if self.use_shared_drive:
+                request = self.service.files().get_media(
+                    fileId=file_id,
+                    supportsAllDrives=True
+                )
+            else:
+                request = self.service.files().get_media(fileId=file_id)
             
             with open(output_path, "wb") as f:
                 downloader = MediaIoBaseDownload(f, request)
@@ -191,10 +231,17 @@ class DriveManager:
                 "mimeType": "text/plain"
             }
             
-            result = self.service.files().create(
-                body=file_metadata,
-                fields="id"
-            ).execute()
+            if self.use_shared_drive:
+                result = self.service.files().create(
+                    body=file_metadata,
+                    fields="id",
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                result = self.service.files().create(
+                    body=file_metadata,
+                    fields="id"
+                ).execute()
             
             logger.debug(f"Marker file created with ID: {result.get('id')}")
             return True
@@ -202,7 +249,183 @@ class DriveManager:
             logger.error(f"Error creating marker file: {e}")
             return False
 
-async def process_session_folder(drive_manager: DriveManager, folder_id: str, folder_name: str, temp_dir: str, retry_failed: bool = False, backoff_time: int = 60) -> bool:
+    def upload_file(self, file_path: str, parent_id: str, file_name: str, mime_type: str = 'application/octet-stream') -> str:
+        """
+        Upload a file to Google Drive.
+        
+        Args:
+            file_path: Path to the file
+            parent_id: ID of the parent folder
+            file_name: Name to give the file in Google Drive
+            mime_type: MIME type of the file
+            
+        Returns:
+            ID of the uploaded file
+        """
+        try:
+            logger.debug(f"Uploading file: {file_path} to folder: {parent_id}")
+            
+            file_metadata = {
+                'name': file_name,
+                'parents': [parent_id]
+            }
+            
+            media = MediaFileUpload(
+                file_path,
+                mimetype=mime_type,
+                resumable=True
+            )
+            
+            if self.use_shared_drive:
+                file = self.service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                file = self.service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+            
+            logger.debug(f"File uploaded successfully with ID: {file.get('id')}")
+            return file.get('id')
+        
+        except Exception as e:
+            logger.error(f"Error uploading file: {e}")
+            raise
+
+    def check_report_for_insights(self, folder_name: str) -> Dict[str, str]:
+        """
+        Check if insights already exist in the Zoom report for this session.
+        
+        Args:
+            folder_name: Name of the session folder
+            
+        Returns:
+            Dictionary with insight URLs
+        """
+        try:
+            # Get the report ID from environment
+            report_id = os.environ.get("ZOOM_REPORT_ID", "")
+            if not report_id:
+                logger.info("No report ID found in environment variables, skipping report check")
+                return {}
+                
+            logger.info(f"Checking report for existing insights for: {folder_name}")
+            
+            # First get the sheet metadata to find the actual sheet name
+            sheet_metadata = self.sheets_service.spreadsheets().get(spreadsheetId=report_id).execute()
+            sheets = sheet_metadata.get('sheets', '')
+            
+            if not sheets:
+                logger.info("No sheets found in the spreadsheet")
+                return {}
+                
+            # Use the first sheet's title
+            sheet_title = sheets[0]['properties']['title']
+            logger.info(f"Using sheet: {sheet_title}")
+            
+            # Get the spreadsheet values using the Sheets API with the correct sheet name
+            result = self.sheets_service.spreadsheets().values().get(
+                spreadsheetId=report_id,
+                range=f"{sheet_title}!A1:Q1000"  # Using explicit range with sheet name
+            ).execute()
+                
+            values = result.get('values', [])
+            if not values:
+                logger.info("No data found in report")
+                return {}
+                
+            # Find the session in the report
+            session_row = None
+            for i, row in enumerate(values):
+                if len(row) > 0 and folder_name in row[0]:
+                    session_row = row
+                    break
+                    
+            if not session_row:
+                logger.info(f"Session {folder_name} not found in report")
+                return {}
+                
+            # Extract insight URLs if they exist
+            insight_urls = {}
+            headers = values[0]
+            
+            url_columns = {
+                "Executive Summary URL": "executive_summary_url",
+                "Pedagogical Analysis URL": "pedagogical_analysis_url",
+                "Aha Moments URL": "aha_moments_url",
+                "Engagement Metrics URL": "engagement_metrics_url",
+                "Concise Summary URL": "concise_summary_url"
+            }
+            
+            for header, key in url_columns.items():
+                try:
+                    idx = headers.index(header)
+                    if idx < len(session_row) and session_row[idx]:
+                        insight_urls[key] = session_row[idx]
+                except (ValueError, IndexError):
+                    pass
+                    
+            logger.info(f"Found {len(insight_urls)} existing insight URLs for {folder_name}")
+            return insight_urls
+            
+        except Exception as e:
+            logger.error(f"Error checking report for insights: {e}")
+            return {}
+
+async def generate_concise_summary_from_text(executive_summary: str) -> str:
+    """
+    Generate a concise summary from an executive summary using Claude API.
+    
+    Args:
+        executive_summary: The executive summary text
+        
+    Returns:
+        A concise summary of the executive summary
+    """
+    try:
+        logger.info("Generating concise summary from executive summary")
+        
+        # Import the API queue
+        from app.services.api_queue import api_queue
+        
+        # Create the prompt
+        prompt = f"""You are an expert educational content summarizer. Your task is to create a concise summary (150-200 words) of the following executive summary of an educational session. 
+        
+The summary should:
+1. Capture the key topics and main insights
+2. Highlight the most important learning outcomes
+3. Be written in a clear, professional style
+4. Be easily scannable for busy educators
+
+Here is the executive summary to condense:
+
+{executive_summary}
+
+Provide only the concise summary without any additional commentary or explanations. Do not include any headings or labels like "Concise Summary:" in your response.
+"""
+        
+        # Use the API queue to manage rate limits
+        logger.info(f"Queuing concise summary generation request")
+        concise_summary = await api_queue.add_request(
+            prompt=prompt,
+            max_tokens=1024,
+            temperature=0.2
+        )
+        
+        logger.info(f"Successfully generated concise summary ({len(concise_summary)} chars)")
+        return concise_summary
+                
+    except Exception as e:
+        logger.error(f"Error generating concise summary: {e}")
+        # Return a placeholder if generation fails
+        return "**Concise Summary Generation Failed**\n\nThe system encountered an error while trying to generate a concise summary. Please refer to the executive summary for details."
+
+async def process_session_folder(drive_manager: DriveManager, folder_id: str, folder_name: str, temp_dir: str, retry_failed: bool = False, backoff_time: int = 120) -> bool:
     """
     Process a session folder by generating insights for the transcript.
     
@@ -231,6 +454,9 @@ async def process_session_folder(drive_manager: DriveManager, folder_id: str, fo
         if ".processing_failed" in file_names and not retry_failed:
             logger.info(f"Folder previously failed processing and retry_failed is False: {folder_name}")
             return False
+        
+        # Check if insights already exist in the report
+        existing_insight_urls = drive_manager.check_report_for_insights(folder_name)
             
         # Find transcript file
         logger.debug(f"Looking for transcript file in folder")
@@ -245,47 +471,24 @@ async def process_session_folder(drive_manager: DriveManager, folder_id: str, fo
                 chat_file = file
             elif file["name"] == "meeting_metadata.json":
                 metadata_file = file
-                
+        
         if not transcript_file:
-            logger.warning(f"No transcript found in folder: {folder_name}")
+            logger.warning(f"No transcript file found in folder: {folder_name}")
             return False
-            
-        # Download transcript
+        
+        # Download transcript file
         transcript_path = os.path.join(temp_dir, "transcript.vtt")
-        success = drive_manager.download_file(transcript_file["id"], transcript_path)
-        if not success:
-            logger.error(f"Failed to download transcript from folder: {folder_name}")
-            return False
-            
+        drive_manager.download_file(transcript_file["id"], transcript_path)
+        logger.info(f"Downloaded transcript file to: {transcript_path}")
+        
         # Download chat log if available
         chat_log_path = None
         if chat_file:
             chat_log_path = os.path.join(temp_dir, "chat_log.txt")
-            success = drive_manager.download_file(chat_file["id"], chat_log_path)
-            if not success:
-                logger.warning(f"Failed to download chat log from folder: {folder_name}")
-                chat_log_path = None
-            else:
-                logger.info(f"Chat log downloaded for additional context")
-            
-        # Download metadata if available
-        metadata = {}
-        if metadata_file:
-            metadata_path = os.path.join(temp_dir, "metadata.json")
-            success = drive_manager.download_file(metadata_file["id"], metadata_path)
-            if success:
-                try:
-                    with open(metadata_path, "r") as f:
-                        metadata = json.load(f)
-                    logger.debug(f"Loaded metadata for meeting: {metadata.get('topic', folder_name)}")
-                    os.unlink(metadata_path)
-                except Exception as e:
-                    logger.error(f"Error loading metadata: {e}")
-            
-        # Check which analyses need to be generated
-        analysis_types_to_generate = []
+            drive_manager.download_file(chat_file["id"], chat_log_path)
+            logger.info(f"Downloaded chat log file to: {chat_log_path}")
         
-        # Check for existing analysis files
+        # Define analysis files to generate
         analysis_files = {
             "executive_summary": "executive_summary.md",
             "pedagogical_analysis": "pedagogical_analysis.md",
@@ -294,13 +497,34 @@ async def process_session_folder(drive_manager: DriveManager, folder_id: str, fo
             "concise_summary": "concise_summary.md"
         }
         
+        # Map file names to URL keys in the report
+        file_to_url_key = {
+            "executive_summary.md": "executive_summary_url",
+            "pedagogical_analysis.md": "pedagogical_analysis_url",
+            "aha_moments.md": "aha_moments_url",
+            "engagement_metrics.json": "engagement_metrics_url",
+            "concise_summary.md": "concise_summary_url"
+        }
+        
+        # Determine which analyses to generate
+        analysis_types_to_generate = []
+        
         for analysis_type, file_name in analysis_files.items():
-            if file_name not in file_names:
-                if analysis_type != "concise_summary":  # We'll handle concise summary separately
-                    analysis_types_to_generate.append(analysis_type)
-                    logger.info(f"Need to generate {analysis_type} (file {file_name} not found)")
-            else:
-                logger.info(f"Skipping {analysis_type} generation as {file_name} already exists")
+            # Skip if file exists in Drive
+            if file_name in file_names:
+                logger.info(f"Skipping {analysis_type} generation as {file_name} already exists in Drive")
+                continue
+                
+            # Skip if URL exists in report
+            url_key = file_to_url_key.get(file_name)
+            if url_key and url_key in existing_insight_urls and existing_insight_urls[url_key]:
+                logger.info(f"Skipping {analysis_type} generation as URL exists in report: {existing_insight_urls[url_key]}")
+                continue
+                
+            # Add to list of analyses to generate
+            if analysis_type != "concise_summary":  # We'll handle concise summary separately
+                analysis_types_to_generate.append(analysis_type)
+                logger.info(f"Need to generate {analysis_type} (file {file_name} not found)")
         
         # If no analyses need to be generated, we can skip the API call
         if not analysis_types_to_generate:
@@ -316,138 +540,177 @@ async def process_session_folder(drive_manager: DriveManager, folder_id: str, fo
             participant_school_mapping={}
         )
         
-        try:
-            result = await generate_analysis(request)
-            logger.info(f"Analysis generation completed")
-        except Exception as e:
-            error_message = str(e)
-            logger.error(f"Error generating analysis: {error_message}")
-            
-            # Handle rate limiting errors
-            if "rate_limit_error" in error_message or "429" in error_message:
-                logger.warning(f"Rate limit exceeded. Waiting {backoff_time} seconds before retrying...")
-                
-                # Create a temporary marker to indicate processing was attempted but failed
-                drive_manager.create_marker_file(folder_id, ".processing_failed")
-                
-                # Wait for backoff time
-                time.sleep(backoff_time)
-                return False
-            elif "overloaded_error" in error_message or "529" in error_message:
-                logger.warning(f"Claude API overloaded. Waiting {backoff_time} seconds before retrying...")
-                
-                # Create a temporary marker to indicate processing was attempted but failed
-                drive_manager.create_marker_file(folder_id, ".processing_failed")
-                
-                # Wait for backoff time
-                time.sleep(backoff_time)
-                return False
-            else:
-                # For other errors, mark as failed and continue
-                drive_manager.create_marker_file(folder_id, ".processing_failed")
-                return False
+        # Try to generate analysis with exponential backoff for rate limiting
+        max_retries = 5
+        current_retry = 0
+        current_backoff = backoff_time
         
-        # Upload results to Drive
-        logger.info(f"Uploading analysis results to Drive")
+        while current_retry < max_retries:
+            try:
+                result = await generate_analysis(request)
+                break
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "429" in str(e):
+                    current_retry += 1
+                    if current_retry >= max_retries:
+                        logger.error(f"Maximum retries ({max_retries}) exceeded for rate limiting. Marking folder as failed.")
+                        drive_manager.create_marker_file(folder_id, ".processing_failed")
+                        return False
+                    
+                    logger.warning(f"Rate limit exceeded. Retry {current_retry}/{max_retries}. Waiting {current_backoff} seconds before retrying...")
+                    await asyncio.sleep(current_backoff)
+                    current_backoff *= 2  # Double the backoff time for each retry
+                else:
+                    logger.error(f"Error generating analysis: {e}")
+                    drive_manager.create_marker_file(folder_id, ".processing_failed")
+                    return False
+        else:
+            # This will only execute if the while loop completes without a break
+            logger.error("Failed to generate analysis after all retries")
+            drive_manager.create_marker_file(folder_id, ".processing_failed")
+            return False
         
-        if result.executive_summary:
-            logger.debug(f"Uploading executive summary")
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        # Upload results to Drive and collect URLs
+        insight_urls = {}
+        
+        # Upload executive summary
+        if "executive_summary" in analysis_types_to_generate:
+            executive_summary_path = os.path.join(temp_dir, "executive_summary.md")
+            with open(executive_summary_path, "w") as f:
                 f.write(result.executive_summary)
-                exec_summary_path = f.name
-                
-            await upload_file(
-                file_path=exec_summary_path,
-                folder_id=folder_id,
-                file_name="executive_summary.md",
-                mime_type="text/markdown"
+            
+            file_id = drive_manager.upload_file(
+                file_path=executive_summary_path,
+                parent_id=folder_id,
+                file_name="executive_summary.md"
             )
+            logger.info(f"Uploaded executive summary with ID: {file_id}")
             
-            # Generate concise summary if it doesn't exist
-            if "concise_summary.md" not in file_names:
-                logger.debug(f"Generating concise summary from executive summary")
-                try:
-                    # Import the function here to avoid circular imports
-                    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    from generate_concise_summary import generate_concise_summary
-                    
-                    # Generate concise summary using the executive summary
-                    concise_summary = await generate_concise_summary(existing_summary=result.executive_summary)
-                    
-                    # Upload concise summary
-                    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-                        f.write(concise_summary)
-                        concise_summary_path = f.name
-                        
-                    await upload_file(
-                        file_path=concise_summary_path,
-                        folder_id=folder_id,
-                        file_name="concise_summary.md",
-                        mime_type="text/markdown"
-                    )
-                    os.unlink(concise_summary_path)
-                    logger.info(f"Generated and uploaded concise summary")
-                except Exception as e:
-                    logger.error(f"Error generating concise summary: {e}")
+            # Get the webViewLink
+            file = drive_manager.service.files().get(
+                fileId=file_id,
+                fields='webViewLink',
+                supportsAllDrives=True
+            ).execute()
             
-            os.unlink(exec_summary_path)
+            insight_urls["executive_summary_url"] = file.get('webViewLink', '')
         
-        if result.pedagogical_analysis:
-            logger.debug(f"Uploading pedagogical analysis")
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        # Upload pedagogical analysis
+        if "pedagogical_analysis" in analysis_types_to_generate:
+            pedagogical_analysis_path = os.path.join(temp_dir, "pedagogical_analysis.md")
+            with open(pedagogical_analysis_path, "w") as f:
                 f.write(result.pedagogical_analysis)
-                pedagogical_path = f.name
-                
-            await upload_file(
-                file_path=pedagogical_path,
-                folder_id=folder_id,
-                file_name="pedagogical_analysis.md",
-                mime_type="text/markdown"
-            )
-            os.unlink(pedagogical_path)
             
-        if result.aha_moments:
-            logger.debug(f"Uploading aha moments")
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            file_id = drive_manager.upload_file(
+                file_path=pedagogical_analysis_path,
+                parent_id=folder_id,
+                file_name="pedagogical_analysis.md"
+            )
+            logger.info(f"Uploaded pedagogical analysis with ID: {file_id}")
+            
+            # Get the webViewLink
+            file = drive_manager.service.files().get(
+                fileId=file_id,
+                fields='webViewLink',
+                supportsAllDrives=True
+            ).execute()
+            
+            insight_urls["pedagogical_analysis_url"] = file.get('webViewLink', '')
+        
+        # Upload aha moments
+        if "aha_moments" in analysis_types_to_generate:
+            aha_moments_path = os.path.join(temp_dir, "aha_moments.md")
+            with open(aha_moments_path, "w") as f:
                 f.write(result.aha_moments)
-                aha_path = f.name
-                
-            await upload_file(
-                file_path=aha_path,
-                folder_id=folder_id,
-                file_name="aha_moments.md",
-                mime_type="text/markdown"
-            )
-            os.unlink(aha_path)
             
-        if result.engagement_metrics:
-            logger.debug(f"Uploading engagement metrics")
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(result.engagement_metrics, f, indent=2)
-                engagement_path = f.name
-                
-            await upload_file(
-                file_path=engagement_path,
-                folder_id=folder_id,
-                file_name="engagement_metrics.json",
-                mime_type="application/json"
+            file_id = drive_manager.upload_file(
+                file_path=aha_moments_path,
+                parent_id=folder_id,
+                file_name="aha_moments.md"
             )
-            os.unlink(engagement_path)
+            logger.info(f"Uploaded aha moments with ID: {file_id}")
+            
+            # Get the webViewLink
+            file = drive_manager.service.files().get(
+                fileId=file_id,
+                fields='webViewLink',
+                supportsAllDrives=True
+            ).execute()
+            
+            insight_urls["aha_moments_url"] = file.get('webViewLink', '')
         
-        # Create marker file
-        logger.debug(f"Creating marker file to indicate processing is complete")
-        drive_manager.create_marker_file(folder_id)
+        # Upload engagement analysis
+        if "engagement_analysis" in analysis_types_to_generate:
+            engagement_analysis_path = os.path.join(temp_dir, "engagement_metrics.json")
+            with open(engagement_analysis_path, "w") as f:
+                json.dump(result.engagement_metrics, f, indent=2)
+            
+            file_id = drive_manager.upload_file(
+                file_path=engagement_analysis_path,
+                parent_id=folder_id,
+                file_name="engagement_metrics.json"
+            )
+            logger.info(f"Uploaded engagement metrics with ID: {file_id}")
+            
+            # Get the webViewLink
+            file = drive_manager.service.files().get(
+                fileId=file_id,
+                fields='webViewLink',
+                supportsAllDrives=True
+            ).execute()
+            
+            insight_urls["engagement_metrics_url"] = file.get('webViewLink', '')
         
-        # Clean up
-        logger.debug(f"Cleaning up temporary files")
-        os.unlink(transcript_path)
-        if chat_log_path and os.path.exists(chat_log_path):
-            os.unlink(chat_log_path)
+        # Generate concise summary if executive summary was generated
+        if "executive_summary" in analysis_types_to_generate and "concise_summary.md" not in file_names:
+            try:
+                logger.info(f"Generating concise summary from executive summary")
+                
+                # Use the executive summary we just generated
+                concise_summary = await generate_concise_summary_from_text(result.executive_summary)
+                
+                # Upload concise summary
+                concise_summary_path = os.path.join(temp_dir, "concise_summary.md")
+                with open(concise_summary_path, "w") as f:
+                    f.write(concise_summary)
+                
+                file_id = drive_manager.upload_file(
+                    file_path=concise_summary_path,
+                    parent_id=folder_id,
+                    file_name="concise_summary.md"
+                )
+                logger.info(f"Uploaded concise summary with ID: {file_id}")
+                
+                # Get the webViewLink
+                file = drive_manager.service.files().get(
+                    fileId=file_id,
+                    fields='webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+                
+                insight_urls["concise_summary_url"] = file.get('webViewLink', '')
+                
+            except Exception as e:
+                logger.error(f"Error generating concise summary: {e}")
+                # Continue even if concise summary generation fails
         
-        logger.info(f"Successfully processed folder: {folder_name}")
+        # Update the report with insight URLs
+        if insight_urls:
+            from app.services.analysis import update_report_with_insight_urls
+            success = await update_report_with_insight_urls(folder_name, insight_urls)
+            if success:
+                logger.info(f"Updated report with insight URLs for {folder_name}")
+            else:
+                logger.warning(f"Failed to update report with insight URLs for {folder_name}")
+        
+        # Create marker file to indicate successful processing
+        drive_manager.create_marker_file(folder_id, ".processed")
+        
         return True
+        
     except Exception as e:
-        logger.error(f"Error processing folder {folder_name}: {e}")
+        logger.error(f"Error processing session folder: {e}")
+        drive_manager.create_marker_file(folder_id, ".processing_failed")
         return False
 
 async def process_course_folder(drive_manager: DriveManager, folder_id: str, folder_name: str, temp_dir: str) -> int:

@@ -1,0 +1,70 @@
+2025-07-12 19:16:37,718 - __main__ - INFO - Updating Zoom Report with ID: 1efsf_Y9eJ-rV5sEi9Fo9ng3R2PQPEueacuXlMg0CbAQ
+2025-07-12 19:16:37,718 - __main__ - INFO - Initializing Drive Manager
+2025-07-12 19:16:37,792 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2025-07-12 19:16:37,793 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2025-07-12 19:16:37,795 - __main__ - INFO - Drive Manager initialized with shared drive ID: 0AFk4AGqVI5soUk9PVA
+2025-07-12 19:16:38,756 - __main__ - INFO - Found 11 course folders
+2025-07-12 19:16:40,597 - __main__ - INFO - Using sheet: Zoom Recordings Report
+2025-07-12 19:16:41,167 - __main__ - INFO - Found 10 meeting topics and 27 UUIDs in the report
+2025-07-12 19:16:41,167 - __main__ - INFO - Processing course: Beyond the Piggy Bank
+2025-07-12 19:16:43,217 - __main__ - INFO - Found reverse partial match for session: Beyond the Piggy Bank_2025-07-10
+2025-07-12 19:16:47,087 - __main__ - INFO - Updated 5 cells for session: Beyond the Piggy Bank_2025-07-10
+2025-07-12 19:16:47,088 - __main__ - INFO - Processing course: Algebranauts
+2025-07-12 19:16:48,371 - __main__ - INFO - Found reverse partial match for session: Algebranauts_2025-07-07
+2025-07-12 19:16:51,724 - __main__ - INFO - Updated 5 cells for session: Algebranauts_2025-07-07
+2025-07-12 19:16:52,641 - __main__ - INFO - Found reverse partial match for session: Algebranauts_2025-07-09
+2025-07-12 19:16:56,389 - __main__ - INFO - Updated 5 cells for session: Algebranauts_2025-07-09
+2025-07-12 19:16:56,984 - __main__ - INFO - Found reverse partial match for session: Algebranauts_2025-07-11
+2025-07-12 19:17:00,203 - __main__ - INFO - Updated 5 cells for session: Algebranauts_2025-07-11
+2025-07-12 19:17:00,204 - __main__ - INFO - Processing course: Astrophysics
+2025-07-12 19:17:01,450 - __main__ - INFO - Found reverse partial match for session: Astrophysics_2025-07-09
+2025-07-12 19:17:05,206 - __main__ - INFO - Updated 5 cells for session: Astrophysics_2025-07-09
+2025-07-12 19:17:05,873 - __main__ - INFO - Found reverse partial match for session: Astrophysics_2025-07-11
+2025-07-12 19:17:09,231 - __main__ - INFO - Updated 5 cells for session: Astrophysics_2025-07-11
+2025-07-12 19:17:09,895 - __main__ - INFO - Found reverse partial match for session: Astrophysics_2025-07-07
+2025-07-12 19:17:13,489 - __main__ - INFO - Updated 5 cells for session: Astrophysics_2025-07-07
+2025-07-12 19:17:13,489 - __main__ - INFO - Processing course: Algebra Adventures
+2025-07-12 19:17:14,879 - __main__ - INFO - Found reverse partial match for session: Algebra Adventures_2025-06-14
+2025-07-12 19:17:18,099 - __main__ - INFO - Updated 5 cells for session: Algebra Adventures_2025-06-14
+2025-07-12 19:17:18,100 - __main__ - INFO - Processing course: Your Lab is in your Head: An Introduction to Neuroscience
+2025-07-12 19:17:19,329 - __main__ - INFO - Found reverse partial match for session: Your Lab is in your Head: An Introduction to Neuroscience_2025-06-07
+2025-07-12 19:17:22,504 - __main__ - INFO - Updated 5 cells for session: Your Lab is in your Head: An Introduction to Neuroscience_2025-06-07
+2025-07-12 19:17:22,504 - __main__ - INFO - Processing course: Gifted Summer Program: Orientation
+2025-07-12 19:17:23,771 - __main__ - INFO - Found reverse partial match for session: Gifted Summer Program: Orientation_2025-07-06
+2025-07-12 19:17:27,328 - __main__ - INFO - Updated 5 cells for session: Gifted Summer Program: Orientation_2025-07-06
+2025-07-12 19:17:27,330 - __main__ - INFO - Processing course: M3 - Middle school Math - Teacher Hour
+2025-07-12 19:17:29,077 - __main__ - INFO - Found reverse partial match for session: M3 - Middle school Math - Teacher Hour_2025-06-18
+2025-07-12 19:17:32,093 - __main__ - INFO - Updated 5 cells for session: M3 - Middle school Math - Teacher Hour_2025-06-18
+2025-07-12 19:17:32,775 - __main__ - INFO - Found reverse partial match for session: M3 - Middle school Math - Teacher Hour_2025-07-02
+2025-07-12 19:17:36,596 - __main__ - INFO - Updated 5 cells for session: M3 - Middle school Math - Teacher Hour_2025-07-02
+2025-07-12 19:17:37,164 - __main__ - INFO - Found reverse partial match for session: M3 - Middle school Math - Teacher Hour_2025-06-11
+2025-07-12 19:17:40,658 - __main__ - INFO - Updated 5 cells for session: M3 - Middle school Math - Teacher Hour_2025-06-11
+2025-07-12 19:17:40,658 - __main__ - INFO - Processing course: Critical Thinking Through History
+2025-07-12 19:17:42,104 - __main__ - INFO - Found reverse partial match for session: Critical Thinking Through History_2025-06-21
+2025-07-12 19:17:45,456 - __main__ - INFO - Updated 5 cells for session: Critical Thinking Through History_2025-06-21
+2025-07-12 19:17:46,049 - __main__ - INFO - Found reverse partial match for session: Critical Thinking Through History_2025-07-02
+2025-07-12 19:17:49,348 - __main__ - INFO - Updated 5 cells for session: Critical Thinking Through History_2025-07-02
+2025-07-12 19:17:49,991 - __main__ - INFO - Found reverse partial match for session: Critical Thinking Through History_2025-06-29
+2025-07-12 19:17:53,280 - __main__ - INFO - Updated 5 cells for session: Critical Thinking Through History_2025-06-29
+2025-07-12 19:17:53,882 - __main__ - INFO - Found reverse partial match for session: Critical Thinking Through History_2025-06-22
+2025-07-12 19:17:58,499 - __main__ - INFO - Updated 5 cells for session: Critical Thinking Through History_2025-06-22
+2025-07-12 19:17:59,082 - __main__ - INFO - Found reverse partial match for session: Critical Thinking Through History_2025-06-25
+2025-07-12 19:18:02,623 - __main__ - INFO - Updated 5 cells for session: Critical Thinking Through History_2025-06-25
+2025-07-12 19:18:02,623 - __main__ - INFO - Processing course: MMM - Primary - June 2025
+2025-07-12 19:18:07,624 - __main__ - INFO - Processing course: GenAI for Educators: Sri Kumarans
+2025-07-12 19:18:08,933 - __main__ - INFO - Found reverse partial match for session: GenAI for Educators: Sri Kumarans_2025-07-10
+2025-07-12 19:18:14,100 - __main__ - INFO - Updated 5 cells for session: GenAI for Educators: Sri Kumarans_2025-07-10
+2025-07-12 19:18:14,731 - __main__ - INFO - Found reverse partial match for session: GenAI for Educators: Sri Kumarans_2025-07-11
+2025-07-12 19:18:17,862 - __main__ - INFO - Updated 5 cells for session: GenAI for Educators: Sri Kumarans_2025-07-11
+2025-07-12 19:18:18,466 - __main__ - INFO - Found reverse partial match for session: GenAI for Educators: Sri Kumarans_2025-07-04
+2025-07-12 19:18:21,514 - __main__ - INFO - Updated 5 cells for session: GenAI for Educators: Sri Kumarans_2025-07-04
+2025-07-12 19:18:22,155 - __main__ - INFO - Found reverse partial match for session: GenAI for Educators: Sri Kumarans_2025-07-03
+2025-07-12 19:18:25,806 - __main__ - INFO - Updated 5 cells for session: GenAI for Educators: Sri Kumarans_2025-07-03
+2025-07-12 19:18:25,807 - __main__ - INFO - Processing course: My Misconception Mentor - Middle school Math- June 2025
+2025-07-12 19:18:27,137 - __main__ - INFO - Found reverse partial match for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-07
+2025-07-12 19:18:30,408 - __main__ - INFO - Updated 5 cells for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-07
+2025-07-12 19:18:31,176 - __main__ - INFO - Found reverse partial match for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-28
+2025-07-12 19:18:35,521 - __main__ - INFO - Updated 5 cells for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-28
+2025-07-12 19:18:36,150 - __main__ - INFO - Found reverse partial match for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-14
+2025-07-12 19:18:39,363 - __main__ - INFO - Updated 5 cells for session: My Misconception Mentor - Middle school Math- June 2025_2025-06-14
+2025-07-12 19:18:39,364 - __main__ - INFO - Processing completed. Updated 25 out of 33 sessions.
