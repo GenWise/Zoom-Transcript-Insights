@@ -17,6 +17,7 @@ import argparse
 import smtplib
 import asyncio
 import subprocess
+import glob
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -128,10 +129,58 @@ def run_script(script_path: str, args: List[str] = None) -> bool:
         logger.error(f"Error output: {e.stderr}")
         return False
 
+def rotate_logs(days_to_keep=30):
+    """
+    Delete log files older than the specified number of days.
+    
+    Args:
+        days_to_keep: Number of days of logs to keep
+    """
+    log_dir = os.path.join(parent_dir, "logs")
+    
+    if not os.path.exists(log_dir):
+        logger.warning(f"Log directory not found: {log_dir}")
+        return
+    
+    # Get all daily processing log files
+    log_pattern = os.path.join(log_dir, "daily_processing_*.log")
+    log_files = glob.glob(log_pattern)
+    
+    if not log_files:
+        logger.debug("No log files to rotate.")
+        return
+    
+    # Calculate cutoff date
+    cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+    
+    # Track deleted files
+    deleted_files = 0
+    
+    for log_file in log_files:
+        # Extract date from filename
+        try:
+            filename = os.path.basename(log_file)
+            date_str = filename.replace("daily_processing_", "").replace(".log", "")
+            file_date = datetime.strptime(date_str, "%Y-%m-%d")
+            
+            # Delete if older than cutoff
+            if file_date < cutoff_date:
+                os.remove(log_file)
+                deleted_files += 1
+                
+        except (ValueError, Exception) as e:
+            logger.error(f"Error processing {log_file}: {e}")
+    
+    if deleted_files > 0:
+        logger.info(f"Log rotation complete: {deleted_files} files deleted.")
+
 async def daily_processing():
     """Run the daily processing workflow."""
     start_time = datetime.now()
     logger.info(f"Starting daily processing at {start_time}")
+    
+    # Rotate logs first (keep last 30 days)
+    rotate_logs(30)
     
     # Results tracking
     results = {

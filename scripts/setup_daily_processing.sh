@@ -34,8 +34,8 @@ echo "Project directory: $PROJECT_DIR"
 echo "Script path: $SCRIPT_PATH"
 
 # Create the cron job command
-# Run daily at 3:00 AM
-CRON_CMD="0 3 * * * cd $PROJECT_DIR && source $ENV_FILE && $PYTHON_PATH $SCRIPT_PATH >> $LOG_DIR/cron_daily_processing.log 2>&1"
+# Run daily at 3:00 AM - overwrite the log file each day instead of appending
+CRON_CMD="0 3 * * * cd $PROJECT_DIR && source $ENV_FILE && $PYTHON_PATH $SCRIPT_PATH > $LOG_DIR/cron_daily_processing.log 2>&1"
 
 # Check if cron job already exists
 EXISTING_CRON=$(crontab -l 2>/dev/null | grep -F "$SCRIPT_PATH")

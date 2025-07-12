@@ -61,8 +61,10 @@ python scripts/daily_processing.py
 
 Logs for the daily processing are stored in the `logs` directory:
 
-- `logs/daily_processing_YYYY-MM-DD.log`: Detailed logs for each daily run
-- `logs/cron_daily_processing.log`: Output from the cron job execution
+- `logs/daily_processing_YYYY-MM-DD.log`: Detailed logs for each daily run (preserved by date)
+- `logs/cron_daily_processing.log`: Output from the cron job execution (overwritten daily)
+
+The system automatically performs log rotation, keeping only the last 30 days of daily processing logs to prevent disk space issues.
 
 ## Components
 
