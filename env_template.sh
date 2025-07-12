@@ -37,6 +37,10 @@ export GOOGLE_CREDENTIALS_FILE="path_to_your_credentials.json"
 # This is the part of the URL after "folders/" when viewing the folder
 export GOOGLE_DRIVE_ROOT_FOLDER="your_root_folder_id"
 
+# ID of the shared drive to use (recommended to avoid storage quota issues)
+# Leave empty to use My Drive instead of a shared drive
+export GOOGLE_SHARED_DRIVE_ID="your_shared_drive_id"
+
 # =============================================
 # Claude API Credentials
 # =============================================

@@ -8,7 +8,7 @@ The Zoom Recordings Report is a CSV file that contains information about all Zoo
 
 ## Access
 
-The report is available as a Google Sheet at [insert shared link here]. You should have received access via email.
+The report is available as a Google Sheet at [https://docs.google.com/spreadsheets/d/1om0K8VQUA2-Y__U-WNEXEFqLs6psHEJw0HAqUf3Cf9k/edit?usp=sharing]. You should have received access via email.
 
 ## Update Schedule
 
@@ -44,7 +44,7 @@ The report contains the following columns:
 
 If you need recordings from a specific date range that aren't in the report:
 
-1. Email rajesh@genwise.in or vishnu@genwise.in with:
+1. Email rajesh@genwise.in with:
    - Subject: "Zoom Report Manual Extraction Request"
    - The specific date range needed (e.g., "June 1-15, 2023")
    - Any specific courses or sessions you're looking for (optional)

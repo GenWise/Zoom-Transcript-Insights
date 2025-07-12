@@ -856,10 +856,67 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
     try:
         drive_service = get_drive_service()
         
-        # Check if report already exists
+        # Check if we have a specific report ID in environment variables
+        report_id = os.environ.get("ZOOM_REPORT_ID", "")
+        
+        if report_id:
+            # Use the specific report ID
+            try:
+                # Create media
+                media = MediaFileUpload(
+                    report_path,
+                    mimetype='text/csv',
+                    resumable=True
+                )
+                
+                # Update file content
+                logger.info(f"Updating report with ID: {report_id}")
+                
+                # First check if the file exists and is accessible
+                try:
+                    drive_service.files().get(fileId=report_id).execute()
+                    
+                    # Update the file
+                    file = drive_service.files().update(
+                        fileId=report_id,
+                        media_body=media,
+                        supportsAllDrives=True
+                    ).execute()
+                    
+                    # Get the webViewLink
+                    file = drive_service.files().get(
+                        fileId=report_id,
+                        fields='webViewLink',
+                        supportsAllDrives=True
+                    ).execute()
+                    
+                    logger.info(f"Report updated successfully")
+                    logger.info(f"Report can be viewed at: {file.get('webViewLink')}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Could not access report with ID {report_id}: {e}")
+                    # Continue with the regular flow to create/update by name
+            except Exception as e:
+                logger.warning(f"Error updating report with ID {report_id}: {e}")
+                # Continue with the regular flow to create/update by name
+        
+        # If no specific ID or failed to update, check if report exists by name
         report_name = "Zoom Recordings Report"
-        query = f"name = '{report_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{config.GOOGLE_DRIVE_ROOT_FOLDER}' in parents and trashed = false"
-        results = drive_service.files().list(q=query).execute()
+        
+        # Check in shared drive if configured
+        if config.USE_SHARED_DRIVE:
+            query = f"name = '{report_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+            results = drive_service.files().list(
+                q=query,
+                corpora="drive",
+                driveId=config.GOOGLE_SHARED_DRIVE_ID,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+        else:
+            # Check in regular drive
+            query = f"name = '{report_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{config.GOOGLE_DRIVE_ROOT_FOLDER}' in parents and trashed = false"
+            results = drive_service.files().list(q=query).execute()
         
         if results.get('files'):
             # Update existing report
@@ -874,44 +931,84 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
             
             # Update file content
             logger.info(f"Updating existing report with ID: {file_id}")
-            file = drive_service.files().update(
-                fileId=file_id,
-                media_body=media
-            ).execute()
             
-            # Get the webViewLink
-            file = drive_service.files().get(
-                fileId=file_id,
-                fields='webViewLink'
-            ).execute()
+            if config.USE_SHARED_DRIVE:
+                file = drive_service.files().update(
+                    fileId=file_id,
+                    media_body=media,
+                    supportsAllDrives=True
+                ).execute()
+                
+                # Get the webViewLink
+                file = drive_service.files().get(
+                    fileId=file_id,
+                    fields='webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                file = drive_service.files().update(
+                    fileId=file_id,
+                    media_body=media
+                ).execute()
+                
+                # Get the webViewLink
+                file = drive_service.files().get(
+                    fileId=file_id,
+                    fields='webViewLink'
+                ).execute()
             
             logger.info(f"Report updated successfully")
             logger.info(f"Report can be viewed at: {file.get('webViewLink')}")
         else:
             # Create new report
-            file_metadata = {
-                'name': report_name,
-                'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER],
-                'mimeType': 'application/vnd.google-apps.spreadsheet'
-            }
-            
-            # Create media
-            media = MediaFileUpload(
-                report_path,
-                mimetype='text/csv',
-                resumable=True
-            )
-            
-            # Upload file
-            logger.info("Creating new report in Google Drive")
-            file = drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id,webViewLink'
-            ).execute()
+            if config.USE_SHARED_DRIVE:
+                file_metadata = {
+                    'name': report_name,
+                    'driveId': config.GOOGLE_SHARED_DRIVE_ID,
+                    'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER],
+                    'mimeType': 'application/vnd.google-apps.spreadsheet'
+                }
+                
+                # Create media
+                media = MediaFileUpload(
+                    report_path,
+                    mimetype='text/csv',
+                    resumable=True
+                )
+                
+                # Upload file
+                logger.info("Creating new report in shared drive")
+                file = drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id,webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                file_metadata = {
+                    'name': report_name,
+                    'parents': [config.GOOGLE_DRIVE_ROOT_FOLDER],
+                    'mimeType': 'application/vnd.google-apps.spreadsheet'
+                }
+                
+                # Create media
+                media = MediaFileUpload(
+                    report_path,
+                    mimetype='text/csv',
+                    resumable=True
+                )
+                
+                # Upload file
+                logger.info("Creating new report in Google Drive")
+                file = drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id,webViewLink'
+                ).execute()
             
             logger.info(f"Report created with ID: {file.get('id')}")
             logger.info(f"Report can be viewed at: {file.get('webViewLink')}")
+            logger.info(f"Add this ID to your .env file as ZOOM_REPORT_ID=\"{file.get('id')}\"")
         
     except Exception as e:
         logger.error(f"Error uploading report to Google Drive: {e}")

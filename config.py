@@ -14,10 +14,12 @@ ZOOM_BASE_URL = os.environ.get("ZOOM_BASE_URL", "https://api.zoom.us/v2")
 # Google Drive Configuration
 GOOGLE_CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 GOOGLE_DRIVE_ROOT_FOLDER = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER", "")
+GOOGLE_SHARED_DRIVE_ID = os.environ.get("GOOGLE_SHARED_DRIVE_ID", "")
+USE_SHARED_DRIVE = bool(GOOGLE_SHARED_DRIVE_ID)
 
 # Claude API Configuration
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-CLAUDE_MODEL = "claude-3-7-sonnet-20250219"
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-opus-20240229")
 
 # FastAPI Settings
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
