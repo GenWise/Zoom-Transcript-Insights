@@ -69,6 +69,11 @@ This application processes Zoom meeting transcripts (VTT files) and uses Claude 
    - Enable the Google Drive API
    - Create a service account and download the JSON credentials file
    - Place the JSON file in your project directory
+   - **IMPORTANT**: Service accounts don't have their own storage quota. To avoid storage errors:
+     - Create a shared drive in Google Drive (requires Google Workspace)
+     - Share it with your service account email (as Content Manager)
+     - Get the shared drive ID from the URL and add it to `GOOGLE_SHARED_DRIVE_ID` in your `.env` file
+     - See `docs/shared_drive_setup.md` for detailed instructions
    - Create a folder in Google Drive and share it with the service account email
    - Get the folder ID from the URL and update `GOOGLE_DRIVE_ROOT_FOLDER` in your `.env` file
    - Update `GOOGLE_CREDENTIALS_FILE` to point to your JSON file
@@ -236,6 +241,44 @@ python extract_meeting_passwords.py
 2. For each recording without a password, fetches details from Zoom API
 3. Extracts the meeting password and host information
 4. Updates the report with the new information
+
+### 5. Updating Insight URLs in the Zoom Report
+
+To update the Zoom report with URLs to all insight files:
+
+```bash
+python update_insight_urls.py
+```
+
+**Parameters:**
+- `--log-level`: Set logging verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+**What this script does:**
+1. Connects to Google Drive using your credentials
+2. Finds all session folders with generated insights
+3. Uses multiple matching strategies to find the corresponding report entries:
+   - Exact session name matching
+   - Date-based matching
+   - Partial name matching
+   - UUID matching from metadata or transcript files
+4. Updates the report with URLs to all insight files (executive summaries, pedagogical analyses, etc.)
+
+For more details, see [docs/insight_url_update.md](docs/insight_url_update.md).
+
+### 6. Verifying Report Updates
+
+To verify that all sessions with insights have URLs in the Zoom report:
+
+```bash
+python verify_report_updates.py
+```
+
+**What this script does:**
+1. Finds all sessions with insights in Google Drive
+2. Checks which sessions in the report have URLs
+3. Verifies that all sessions with insights have URLs in the report
+4. Checks if all URL types are present for each session
+5. Provides a summary of the update status
 
 ### Webhook Integration
 
