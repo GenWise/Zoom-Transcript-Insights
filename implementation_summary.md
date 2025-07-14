@@ -1,85 +1,68 @@
-# Zoom Transcript Insights - Implementation Summary
+# Implementation Summary: Zoom Report Fixes
 
-## Project Overview
+## Issues Fixed
 
-The Zoom Transcript Insights project is a comprehensive system for extracting valuable insights from Zoom meeting recordings and transcripts. The system connects to Zoom's API, downloads recordings and transcripts, processes them using Claude AI, and generates various types of insights that are useful for educational contexts.
+1. **Missing Sessions in Zoom Report**
+   - The report was being overwritten each time instead of appending new sessions
+   - Modified `extract_historical_recordings.py` to download and merge with existing report data
+   - Created `populate_report.py` to scan Google Drive and add all existing sessions to the report
 
-## Key Features
+2. **Missing Insight URLs**
+   - Updated `update_insight_urls.py` to properly match sessions with their insight files
+   - All 28 sessions with insight files now have their URLs in the report
 
-1. **Historical Recording Processing**
-   - Extract recordings from Zoom API within specified date ranges
-   - Download transcripts and metadata
-   - Upload to Google Drive with organized folder structure
-   - Generate comprehensive report with all recording details
+3. **Cron Job Consolidation**
+   - Removed redundant 8 PM cron job, keeping only the 3 AM job
+   - The 3 AM job now handles all daily processing tasks
 
-2. **Intelligent Insights Generation**
-   - Executive Summary: Concise overview of key topics and outcomes
-   - Concise Summary: Ultra-short summary for busy school leaders
-   - Pedagogical Analysis: Detailed analysis of teaching strategies
-   - Aha Moments: Identification of breakthrough learning moments
-   - Engagement Metrics: Analysis of participant engagement patterns
+4. **Email Notification Improvements**
+   - Updated email notifications to include Google Drive link to the report
+   - Added insight statistics to the email notification
+   - Created `--quiet` option for `check_entries_with_insights.py` to provide concise output for emails
 
-3. **Resource Optimization**
-   - Smart detection of existing insights to avoid regeneration
-   - API cost optimization through selective processing
-   - Batch processing with configurable delays to manage rate limits
+## Changes Made
 
-4. **Reporting and Access**
-   - Comprehensive CSV and Google Sheets reports
-   - Meeting passwords included for easy access to recordings
-   - Complete set of links to all insights and recordings
-   - Host information for easy follow-up
+### 1. Modified `scripts/extract_historical_recordings.py`
+- Added code to download the existing report before updating
+- Implemented merging of new recordings with existing data
+- Added proper error handling for API failures
 
-## Implementation Status
+### 2. Created `populate_report.py`
+- Script to scan all sessions in Google Drive
+- Identifies session folders and their insight files
+- Updates the Zoom report with all sessions and their insight URLs
 
-### Completed Components
+### 3. Updated `scripts/daily_processing.py`
+- Improved email notification to include insight statistics
+- Added better error handling and logging
+- Ensured Google Drive link is included in the email
 
-1. **Core Processing Pipeline**
-   - Zoom API integration for fetching recordings
-   - Google Drive integration for storage and organization
-   - Claude API integration for insight generation
-   - VTT transcript parsing and processing
+### 4. Enhanced `check_entries_with_insights.py`
+- Added `--quiet` option for concise output in email notifications
+- Improved reporting of sessions with and without insight URLs
 
-2. **Scripts and Tools**
-   - `extract_historical_recordings.py`: Extract recordings from Zoom
-   - `process_drive_recordings.py`: Process existing recordings in Drive
-   - `generate_missing_concise_summaries.py`: Generate concise summaries
-   - `extract_meeting_passwords.py`: Extract meeting passwords
-   - Various utility scripts for testing and maintenance
+### 5. Updated Cron Configuration
+- Removed the 8 PM job that was duplicating functionality
+- Kept only the 3 AM job that runs the comprehensive daily processing script
 
-3. **Documentation and Setup**
-   - Comprehensive README with setup instructions
-   - Detailed environment variable template
-   - GitHub setup script for easy deployment
+## Results
 
-### Pending Components
-
-1. **Webhook Integration**
-   - Automatic processing of new recordings as they become available
-   - Email notifications to hosts when insights are ready
-
-2. **Enhanced Reporting**
-   - Interactive dashboards for insight trends
-   - Comparative analysis between sessions
-
-## Technical Architecture
-
-1. **Backend Services**
-   - Zoom Client: Handles authentication and API requests to Zoom
-   - Drive Manager: Manages Google Drive operations
-   - Analysis Service: Coordinates insight generation with Claude
-   - VTT Parser: Processes transcript files
-
-2. **Data Flow**
-   - Zoom API → Local Storage → Google Drive → Claude API → Insights → Reports
-
-3. **Configuration**
-   - Environment variables for all credentials and settings
-   - Configurable folder structure and file naming
+- The Zoom report now contains all 36 sessions
+- 28 sessions have complete insight URLs
+- 8 sessions are missing insight URLs (these sessions don't have transcript files)
+- Daily processing runs once at 3 AM, avoiding duplicate processing
+- Email notifications now include a link to the Google Drive report and insight statistics
 
 ## Next Steps
 
-1. Implement webhook integration for automatic processing
-2. Add email notification system for new insights
-3. Enhance reporting capabilities with interactive elements
-4. Implement user authentication for the web interface 
+1. **Missing Transcripts**
+   - Consider uploading transcript files for the 8 sessions missing insight URLs
+   - Once transcripts are available, insights can be generated
+
+2. **API Permissions**
+   - Consider requesting the `cloud_recording:read:list_account_recordings:master` scope for the Zoom API
+   - This would allow using the more efficient account-level endpoint
+
+3. **Monitoring**
+   - Monitor the daily processing logs to ensure the script continues to run successfully
+   - Check that new sessions are properly added to the report with their insight URLs 

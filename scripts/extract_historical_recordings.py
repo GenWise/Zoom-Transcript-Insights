@@ -25,7 +25,7 @@ import logging
 from typing import Dict, List, Optional, Any
 import re
 import pandas as pd
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -696,6 +696,7 @@ async def update_meeting_metadata(session_folder_id: str, recording: Dict, video
 async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
     """
     Create a summary report of all recordings in Google Sheets.
+    Merges new recordings with existing report data to ensure all sessions are preserved.
     
     Args:
         recordings: List of recording objects from Zoom API
@@ -703,8 +704,8 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
     """
     logger.info("Creating summary report of extracted recordings")
     
-    # Prepare data for the report
-    report_data = []
+    # Prepare data for the new recordings
+    new_report_data = []
     for recording in recordings:
         # Extract basic information
         topic = recording.get("topic", "Unknown")
@@ -819,7 +820,7 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
             logger.error(f"Error finding analysis files for {topic}: {e}")
         
         # Add to report data - exclude Password and Drive Video URL
-        report_data.append({
+        new_report_data.append({
             "Meeting Topic": topic,
             "Host Name": user_name,
             "Host Email": user_email,
@@ -839,25 +840,87 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
             "Concise Summary URL": analysis_links["concise_summary_url"]
         })
     
-    # Create DataFrame and save to CSV
-    if not report_data:
-        logger.warning("No recordings found for the report")
+    # If no new recordings, just log and return
+    if not new_report_data:
+        logger.warning("No new recordings found for the report")
         return
+    
+    # First check if we have a specific report ID in environment variables
+    report_id = os.environ.get("ZOOM_REPORT_ID", "")
+    if not report_id:
+        logger.warning("No ZOOM_REPORT_ID found in environment variables")
+    
+    # Try to download existing report data
+    existing_report_data = []
+    existing_report_downloaded = False
+    
+    try:
+        if report_id:
+            drive_service = get_drive_service()
+            
+            # First check if the file exists and is accessible
+            try:
+                logger.info(f"Downloading existing report with ID: {report_id}")
+                
+                # Export the Google Sheet as CSV
+                request = drive_service.files().export_media(
+                    fileId=report_id,
+                    mimeType='text/csv'
+                )
+                
+                existing_report_path = os.path.join(temp_dir, "existing_zoom_report.csv")
+                
+                with open(existing_report_path, 'wb') as f:
+                    downloader = MediaIoBaseDownload(f, request)
+                    done = False
+                    while done is False:
+                        status, done = downloader.next_chunk()
+                
+                # Read the existing report
+                if os.path.exists(existing_report_path) and os.path.getsize(existing_report_path) > 0:
+                    existing_df = pd.read_csv(existing_report_path)
+                    existing_report_data = existing_df.to_dict('records')
+                    logger.info(f"Successfully downloaded existing report with {len(existing_report_data)} entries")
+                    existing_report_downloaded = True
+            except Exception as e:
+                logger.warning(f"Could not download existing report: {e}")
+    except Exception as e:
+        logger.warning(f"Error accessing existing report: {e}")
+    
+    # Merge existing and new report data
+    merged_report_data = []
+    
+    if existing_report_downloaded and existing_report_data:
+        # Create a set of UUIDs from new recordings to avoid duplicates
+        new_uuids = {record.get("Meeting UUID") for record in new_report_data if record.get("Meeting UUID")}
         
-    df = pd.DataFrame(report_data)
+        # Add all existing records that don't have UUIDs in the new data
+        for record in existing_report_data:
+            if record.get("Meeting UUID") not in new_uuids:
+                merged_report_data.append(record)
+            else:
+                logger.info(f"Skipping existing record with UUID {record.get('Meeting UUID')} as it's in new data")
+        
+        # Add all new records
+        merged_report_data.extend(new_report_data)
+        logger.info(f"Merged report has {len(merged_report_data)} entries ({len(existing_report_data)} existing + {len(new_report_data)} new)")
+    else:
+        # If no existing data, just use new data
+        merged_report_data = new_report_data
+        logger.info(f"Using only new data with {len(new_report_data)} entries")
+    
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(merged_report_data)
     
     # Ensure URLs don't spill over by setting display.max_colwidth
     with pd.option_context('display.max_colwidth', None):
         report_path = os.path.join(temp_dir, "zoom_recordings_report.csv")
         df.to_csv(report_path, index=False)
-    logger.info(f"Saved report to {report_path}")
+    logger.info(f"Saved merged report to {report_path}")
     
     # Upload to Google Drive
     try:
         drive_service = get_drive_service()
-        
-        # Check if we have a specific report ID in environment variables
-        report_id = os.environ.get("ZOOM_REPORT_ID", "")
         
         if report_id:
             # Use the specific report ID
@@ -872,30 +935,23 @@ async def create_summary_report(recordings: List[Dict], temp_dir: str) -> None:
                 # Update file content
                 logger.info(f"Updating report with ID: {report_id}")
                 
-                # First check if the file exists and is accessible
-                try:
-                    drive_service.files().get(fileId=report_id).execute()
-                    
-                    # Update the file
-                    file = drive_service.files().update(
-                        fileId=report_id,
-                        media_body=media,
-                        supportsAllDrives=True
-                    ).execute()
-                    
-                    # Get the webViewLink
-                    file = drive_service.files().get(
-                        fileId=report_id,
-                        fields='webViewLink',
-                        supportsAllDrives=True
-                    ).execute()
-                    
-                    logger.info(f"Report updated successfully")
-                    logger.info(f"Report can be viewed at: {file.get('webViewLink')}")
-                    return
-                except Exception as e:
-                    logger.warning(f"Could not access report with ID {report_id}: {e}")
-                    # Continue with the regular flow to create/update by name
+                # Update the file
+                file = drive_service.files().update(
+                    fileId=report_id,
+                    media_body=media,
+                    supportsAllDrives=True
+                ).execute()
+                
+                # Get the webViewLink
+                file = drive_service.files().get(
+                    fileId=report_id,
+                    fields='webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+                
+                logger.info(f"Report updated successfully")
+                logger.info(f"Report can be viewed at: {file.get('webViewLink')}")
+                return
             except Exception as e:
                 logger.warning(f"Error updating report with ID {report_id}: {e}")
                 # Continue with the regular flow to create/update by name

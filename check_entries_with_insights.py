@@ -5,6 +5,7 @@ Script to check which entries have insight URLs in the Zoom Report.
 
 import os
 import sys
+import argparse
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
@@ -13,6 +14,11 @@ import config
 
 def main():
     """Check which entries have insight URLs in the Zoom Report."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Check which entries have insight URLs in the Zoom Report.")
+    parser.add_argument("--quiet", action="store_true", help="Output concise statistics for email notifications")
+    args = parser.parse_args()
+    
     # Load environment variables
     load_dotenv()
     
@@ -22,7 +28,8 @@ def main():
         print("Error: ZOOM_REPORT_ID not found in environment variables.")
         sys.exit(1)
     
-    print(f"Checking Zoom Report with ID: {report_id}")
+    if not args.quiet:
+        print(f"Checking Zoom Report with ID: {report_id}")
     
     # Set up Google Sheets API client
     try:
@@ -42,7 +49,8 @@ def main():
             
         # Use the first sheet's title
         sheet_title = sheets[0]['properties']['title']
-        print(f"Using sheet: {sheet_title}")
+        if not args.quiet:
+            print(f"Using sheet: {sheet_title}")
         
         # Get the spreadsheet values with the correct sheet name
         result = sheets_service.spreadsheets().values().get(
@@ -69,43 +77,57 @@ def main():
             "Concise Summary URL"
         ]
         
-        print(f"\nTotal rows in report: {len(df)}")
+        total_rows = len(df)
         
         # Find entries with insight URLs
         has_insights = df[insight_columns[0]].notna() & (df[insight_columns[0]] != "") & (df[insight_columns[0]] != "N/A")
         entries_with_insights = df[has_insights]
-        
-        print(f"\nFound {len(entries_with_insights)} entries with insight URLs:")
-        
-        # Print details of entries with insights
-        if len(entries_with_insights) > 0:
-            print("\nEntries with insight URLs:")
-            for i, row in entries_with_insights.iterrows():
-                topic = row.get("Meeting Topic", f"Row {i}")
-                date = row.get("Date", "Unknown date")
-                print(f"{i+1}. {topic} ({date})")
-                
-                # Check if all insight URLs are present
-                missing = []
-                for col in insight_columns:
-                    if col not in row or pd.isna(row[col]) or row[col] == "" or row[col] == "N/A":
-                        missing.append(col)
-                
-                if missing:
-                    print(f"   Missing: {', '.join(missing)}")
-                else:
-                    print("   All insight URLs present")
-        
-        # Find entries without insight URLs
         entries_without_insights = df[~has_insights]
-        print(f"\nFound {len(entries_without_insights)} entries without insight URLs")
         
-        if len(entries_without_insights) > 0:
-            print("\nSample of entries without insight URLs:")
-            for i, row in entries_without_insights.head(5).iterrows():
-                topic = row.get("Meeting Topic", f"Row {i}")
-                date = row.get("Date", "Unknown date")
-                print(f"- {topic} ({date})")
+        if args.quiet:
+            # Concise output for email notifications
+            print(f"Total sessions: {total_rows}")
+            print(f"Sessions with insight URLs: {len(entries_with_insights)}")
+            print(f"Sessions without insight URLs: {len(entries_without_insights)}")
+            
+            if len(entries_without_insights) > 0:
+                print("\nSessions missing insight URLs:")
+                for i, row in entries_without_insights.iterrows():
+                    topic = row.get("Meeting Topic", f"Row {i}")
+                    date = row.get("Date", "Unknown date")
+                    print(f"- {topic} ({date})")
+        else:
+            # Detailed output for interactive use
+            print(f"\nTotal rows in report: {total_rows}")
+            print(f"\nFound {len(entries_with_insights)} entries with insight URLs:")
+            
+            # Print details of entries with insights
+            if len(entries_with_insights) > 0:
+                print("\nEntries with insight URLs:")
+                for i, row in entries_with_insights.iterrows():
+                    topic = row.get("Meeting Topic", f"Row {i}")
+                    date = row.get("Date", "Unknown date")
+                    print(f"{i+1}. {topic} ({date})")
+                    
+                    # Check if all insight URLs are present
+                    missing = []
+                    for col in insight_columns:
+                        if col not in row or pd.isna(row[col]) or row[col] == "" or row[col] == "N/A":
+                            missing.append(col)
+                    
+                    if missing:
+                        print(f"   Missing: {', '.join(missing)}")
+                    else:
+                        print("   All insight URLs present")
+            
+            print(f"\nFound {len(entries_without_insights)} entries without insight URLs")
+            
+            if len(entries_without_insights) > 0:
+                print("\nSample of entries without insight URLs:")
+                for i, row in entries_without_insights.head(5).iterrows():
+                    topic = row.get("Meeting Topic", f"Row {i}")
+                    date = row.get("Date", "Unknown date")
+                    print(f"- {topic} ({date})")
         
     except Exception as e:
         print(f"Error accessing the Zoom Report: {e}")

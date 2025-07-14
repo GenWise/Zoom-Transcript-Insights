@@ -18,11 +18,14 @@ import smtplib
 import asyncio
 import subprocess
 import glob
+import pandas as pd
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
 
 # Add the parent directory to the path so we can import from the app
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -174,6 +177,99 @@ def rotate_logs(days_to_keep=30):
     if deleted_files > 0:
         logger.info(f"Log rotation complete: {deleted_files} files deleted.")
 
+def get_new_sessions() -> Tuple[List[Dict], str]:
+    """
+    Get information about new sessions processed today.
+    
+    Returns:
+        Tuple containing:
+        - List of dictionaries with session information
+        - Google Drive URL to the report
+    """
+    try:
+        # Load environment variables
+        load_dotenv()
+        
+        # Get the report ID
+        report_id = os.environ.get("ZOOM_REPORT_ID")
+        if not report_id:
+            logger.error("ZOOM_REPORT_ID not found in environment variables")
+            return [], ""
+        report_url = f"https://docs.google.com/spreadsheets/d/{report_id}/edit"
+        
+        # Set up Google Sheets API client
+        credentials = service_account.Credentials.from_service_account_file(
+            config.GOOGLE_CREDENTIALS_FILE, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        )
+        sheets_service = build("sheets", "v4", credentials=credentials)
+        
+        # Get sheet names first
+        sheet_metadata = sheets_service.spreadsheets().get(spreadsheetId=report_id).execute()
+        sheets = sheet_metadata.get('sheets', '')
+        
+        if not sheets:
+            logger.error("No sheets found in the spreadsheet")
+            return [], report_url
+            
+        # Use the first sheet's title
+        sheet_title = sheets[0]['properties']['title']
+        
+        # Get the spreadsheet values
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=report_id,
+            range=f"{sheet_title}"
+        ).execute()
+        
+        values = result.get('values', [])
+        if not values:
+            logger.error("No data found in report")
+            return [], report_url
+        
+        # Convert to DataFrame for easier analysis
+        headers = values[0]
+        data = values[1:] if len(values) > 1 else []
+        
+        if not data:
+            logger.info("No sessions found in report")
+            return [], report_url
+        
+        # Create DataFrame
+        df = pd.DataFrame(data, columns=headers)
+        
+        # Get yesterday's date for filtering
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        # Find sessions from yesterday
+        # Try different date formats that might be in the report
+        new_sessions = []
+        
+        # Check if Date column exists
+        if "Date" in df.columns:
+            # Try to filter by date (might be in different formats)
+            for row in df.to_dict('records'):
+                date_str = row.get("Date", "")
+                
+                # Check various date formats
+                if yesterday in date_str or \
+                   datetime.now().strftime("%d %b %Y") in date_str or \
+                   datetime.now().strftime("%d-%b-%Y") in date_str:
+                    new_sessions.append({
+                        "Meeting Topic": row.get("Meeting Topic", "Unknown"),
+                        "Date": date_str,
+                        "Host": row.get("Host Name", "Unknown"),
+                        "Duration": row.get("Duration (minutes)", "Unknown"),
+                        "Executive Summary URL": row.get("Executive Summary URL", ""),
+                        "Concise Summary URL": row.get("Concise Summary URL", ""),
+                        "Zoom Video URL": row.get("Zoom Video URL", "")
+                    })
+        
+        return new_sessions, report_url
+        
+    except Exception as e:
+        logger.error(f"Error getting new sessions: {e}")
+        return [], ""
+
 async def daily_processing():
     """Run the daily processing workflow."""
     start_time = datetime.now()
@@ -232,11 +328,26 @@ async def daily_processing():
     end_time = datetime.now()
     processing_time = end_time - start_time
     
+    # Get information about new sessions
+    new_sessions, report_url = get_new_sessions()
+    results["sessions_processed"] = len(new_sessions)
+    
     # Prepare email notification
     status = "SUCCESS" if all([results["extract_historical"], results["process_drive"], results["update_urls"]]) else "PARTIAL SUCCESS" if any([results["extract_historical"], results["process_drive"], results["update_urls"]]) else "FAILURE"
     
     subject = f"Zoom Insights Daily Processing: {status} ({datetime.now().strftime('%Y-%m-%d')})"
     
+    # Get insight statistics
+    try:
+        insight_stats = subprocess.check_output(
+            [sys.executable, os.path.join(parent_dir, "check_entries_with_insights.py"), "--quiet"],
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        ).strip()
+    except subprocess.CalledProcessError as e:
+        insight_stats = f"Error getting insight statistics: {e.output}"
+    
+    # Create the email body
     body = f"""
 Zoom Insights Daily Processing Report
 ====================================
@@ -244,17 +355,43 @@ Zoom Insights Daily Processing Report
 Date: {datetime.now().strftime('%Y-%m-%d')}
 Status: {status}
 Processing Time: {processing_time}
+Sessions Processed: {results["sessions_processed"]}
 
 Steps:
 1. Extract Historical Recordings: {"SUCCESS" if results["extract_historical"] else "FAILURE"}
 2. Process Drive Recordings: {"SUCCESS" if results["process_drive"] else "FAILURE"}
 3. Update Insight URLs: {"SUCCESS" if results["update_urls"] else "FAILURE"}
 
-For detailed logs, see: {log_file}
-
-{"Errors:" if results["errors"] else ""}
-{chr(10).join(results["errors"]) if results["errors"] else ""}
 """
+
+    # Add new sessions to the email body
+    if new_sessions:
+        body += "\nNew Sessions Processed:\n"
+        body += "------------------------\n"
+        for i, session in enumerate(new_sessions, 1):
+            body += f"{i}. {session['Meeting Topic']} ({session['Date']})\n"
+            body += f"   Host: {session['Host']}\n"
+            body += f"   Duration: {session['Duration']} minutes\n"
+            # Don't include local file paths, only Google Drive links
+            body += "\n"
+    else:
+        body += "\nNo new sessions processed today.\n"
+    
+    # Add insight statistics
+    body += "\nInsight Statistics:\n"
+    body += "------------------\n"
+    body += insight_stats + "\n"
+    
+    # Add report URL
+    body += f"\nFull Zoom Report: {report_url}\n"
+    
+    # Add errors if any
+    if results["errors"]:
+        body += "\nErrors:\n"
+        body += "-------\n"
+        body += "\n".join(results["errors"])
+    
+    body += f"\nFor detailed logs, see: {log_file}\n"
     
     # Send email notification
     send_notification_email(subject, body)
